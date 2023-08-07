@@ -16,7 +16,7 @@ defaults:
 
 jobs:
   deploy-extension:
-    name: Deploy extensions
+    name: Deploy to github pages
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -30,14 +30,6 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v3
-
-      - name: Install and Build
-        run: |
-          ls /tmp
-          ls /tmp/extension_download
-          unzip /tmp/extension_download/*.zip
-          ls /tmp
-          ls /tmp/extension_download
 
       - name: Generate deploy directory
         run: |
@@ -56,6 +48,7 @@ jobs:
           fi
 
       - name: Deploy to Pages
+        if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main'
         uses: JamesIves/github-pages-deploy-action@v4
         with:
           commit-message: Deploying ${{ env.EXT_VERSION }}
