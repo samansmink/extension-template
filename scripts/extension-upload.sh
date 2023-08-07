@@ -15,10 +15,12 @@ ext="/tmp/extension_download/$1.duckdb_extension"
 # compress extension binary
 gzip < "${ext}" > "$ext.gz"
 
-# upload compressed extension binary to S3
+# copy to directory
+mkdir -p "$5/$1/$2/$3/$4"
 cp $ext.gz $5/$1/$2/$3/$4/$1.duckdb_extension.gz
 
 # upload to latest if copy_to_latest is set to true
 if [[ $6 = 'true' ]]; then
+  mkdir -p "$5/$1/latest/$3/$4"
   cp $ext.gz $5/$1/latest/$3/$4/$1.duckdb_extension.gz
 fi
