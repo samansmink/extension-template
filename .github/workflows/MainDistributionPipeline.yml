@@ -16,21 +16,21 @@ jobs:
     name: Linux
     uses: samansmink/extension-workflows/.github/workflows/Linux.yml@main
     with:
-      extension_name: $EXTENSION_NAME
+      extension_name: ${{ env.EXTENSION_NAME }}
     secrets: inherit
 
   macos-build:
     name: MacOS
     uses: samansmink/extension-workflows/.github/workflows/MacOS.yml@main
     with:
-      extension_name: $EXTENSION_NAME
+      extension_name: ${{ env.EXTENSION_NAME }}
     secrets: inherit
 
   windows-build:
     name: Windows
     uses: samansmink/extension-workflows/.github/workflows/Windows.yml@main
     with:
-      extension_name: $EXTENSION_NAME
+      extension_name: ${{ env.EXTENSION_NAME }}
     secrets: inherit
 
 #  test-build:
@@ -58,5 +58,5 @@ jobs:
     name: Deploy
     uses: ./.github/workflows/Deploy.yml
     with:
-      extension_name: $EXTENSION_NAME
+      extension_name: ${{ env.EXTENSION_NAME }}
     secrets: inherit
