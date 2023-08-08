@@ -1,5 +1,7 @@
 name: Main Extension Distribution Pipeline
 on: [push, pull_request, repository_dispatch]
+permissions:
+  contents: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' || github.sha }}
@@ -7,31 +9,53 @@ concurrency:
 
 # TODO: move workflows to official repo
 jobs:
-  linux-build:
-    name: Linux
-    uses: samansmink/extension-workflows/.github/workflows/Linux.yml@main
-    with:
-      extension_name: quack
-    secrets: inherit
+#  linux-build:
+#    name: Linux
+#    uses: samansmink/extension-workflows/.github/workflows/Linux.yml@main
+#    with:
+#      extension_name: quack
+#    secrets: inherit
+#
+#  macos-build:
+#    name: MacOS
+#    uses: samansmink/extension-workflows/.github/workflows/MacOS.yml@main
+#    with:
+#      extension_name: quack
+#    secrets: inherit
+#
+#  windows-build:
+#    name: Windows
+#    uses: samansmink/extension-workflows/.github/workflows/Windows.yml@main
+#    with:
+#      extension_name: quack
+#    secrets: inherit
+#
 
-  macos-build:
-    name: MacOS
-    uses: samansmink/extension-workflows/.github/workflows/MacOS.yml@main
-    with:
-      extension_name: quack
-    secrets: inherit
+  test-build:
+    name: test Build step to test deployment
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
 
-  windows-build:
-    name: Windows
-    uses: samansmink/extension-workflows/.github/workflows/Windows.yml@main
-    with:
-      extension_name: quack
-    secrets: inherit
+    steps:
+      - name: Generate dummy extension file
+        run: |
+          mkdir -p build/release/extension/quack
+          touch build/release/extension/quack/quack.duckdb_extension
+
+      - uses: actions/upload-artifact@v2
+        with:
+          name: quack-extension-linux_amd64
+          path: |
+            build/release/extension/quack/quack.duckdb_extension
 
   deploy:
-    needs: [ linux-build, macos-build, windows-build ]
+#    needs: [ linux-build, macos-build, windows-build ]
+    needs: [ test-build ]
     name: Deploy
     uses: ./.github/workflows/Deploy.yml
     with:
       extension_name: quack
+      archs: " ['linux_amd64'] "
     secrets: inherit
