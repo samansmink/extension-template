@@ -7,30 +7,27 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' || github.sha }}
   cancel-in-progress: true
 
-env:
-  EXTENSION_NAME: quack
-
 # TODO: move workflows to official repo
 jobs:
   linux-build:
     name: Linux
     uses: samansmink/extension-workflows/.github/workflows/Linux.yml@main
     with:
-      extension_name: ${{ env.EXTENSION_NAME }}
+      extension_name: quack
     secrets: inherit
 
   macos-build:
     name: MacOS
     uses: samansmink/extension-workflows/.github/workflows/MacOS.yml@main
     with:
-      extension_name: ${{ env.EXTENSION_NAME }}
+      extension_name: quack
     secrets: inherit
 
   windows-build:
     name: Windows
     uses: samansmink/extension-workflows/.github/workflows/Windows.yml@main
     with:
-      extension_name: ${{ env.EXTENSION_NAME }}
+      extension_name: quack
     secrets: inherit
 
 #  test-build:
@@ -58,5 +55,5 @@ jobs:
     name: Deploy
     uses: ./.github/workflows/Deploy.yml
     with:
-      extension_name: ${{ env.EXTENSION_NAME }}
+      extension_name: quack
     secrets: inherit
