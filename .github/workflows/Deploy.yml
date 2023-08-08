@@ -44,13 +44,16 @@ jobs:
           if [[ "$GITHUB_REF" =~ ^(refs/tags/v.+)$ ]] ; then
             ./scripts/extension-upload.sh ${{ inputs.extension_name }} ${{ github.ref_name }} $DUCKDB_VERSION ${{matrix.duckdb_arch}} /tmp/publish_build true
             echo "EXT_VERSION=${{ github.ref_name }}" >> $GITHUB_ENV
+            echo "EXT_PATH=/tmp/published_build/${{ github.ref_name }}/$DUCKDB_VERSION/${{matrix.duckdb_arch}}" >> $GITHUB_ENV
           else
             ./scripts/extension-upload.sh ${{ inputs.extension_name }} `git log -1 --format=%h` $DUCKDB_VERSION ${{matrix.duckdb_arch}} /tmp/publish_build false
             echo "EXT_VERSION=`git log -1 --format=%h`" >> $GITHUB_ENV
+            echo "EXT_PATH=/tmp/published_build/`git log -1 --format=%h`/$DUCKDB_VERSION/${{matrix.duckdb_arch}}" >> $GITHUB_ENV
           fi
 
       - name: Deploy to Pages
         uses: JamesIves/github-pages-deploy-action@v4
         with:
           commit-message: Deploying ${{ env.EXT_VERSION }}
-          folder: /tmp/publish_build
+          folder: /tmp/publish_build/${{ env.DEPLOY_DIR }}
+          target-folder: ${{ env.DEPLOY_DIR }}
