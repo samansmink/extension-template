@@ -19,5 +19,4 @@ jobs:
       duckdb_version: 6855f749756c073bbb5a7abf4109580d45465c45
       extension_name: quack
       extension_ref: ${{ github.ref_name }}
-
     secrets: inherit
