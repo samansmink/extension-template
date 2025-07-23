@@ -59,5 +59,4 @@ extern "C" {
 DUCKDB_CPP_EXTENSION_ENTRY(quack, loader) {
 	duckdb::LoadInternal(loader);
 }
-
 }
