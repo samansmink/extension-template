@@ -59,8 +59,8 @@ private:
 			return result;
 		}
 		auto start = pos;
-		while (pos < input.size() && input[pos] != '<' && input[pos] != '>' && input[pos] != ',' &&
-		       input[pos] != ':' && input[pos] != '(' && input[pos] != ')' && !StringUtil::CharacterIsSpace(input[pos])) {
+		while (pos < input.size() && input[pos] != '<' && input[pos] != '>' && input[pos] != ',' && input[pos] != ':' &&
+		       input[pos] != '(' && input[pos] != ')' && !StringUtil::CharacterIsSpace(input[pos])) {
 			pos++;
 		}
 		if (start == pos) {
@@ -246,8 +246,7 @@ string GlueTypes::FromLogicalType(const LogicalType &type) {
 	case LogicalTypeId::LIST:
 		return "array<" + FromLogicalType(ListType::GetChildType(type)) + ">";
 	case LogicalTypeId::MAP:
-		return "map<" + FromLogicalType(MapType::KeyType(type)) + "," + FromLogicalType(MapType::ValueType(type)) +
-		       ">";
+		return "map<" + FromLogicalType(MapType::KeyType(type)) + "," + FromLogicalType(MapType::ValueType(type)) + ">";
 	case LogicalTypeId::STRUCT: {
 		vector<string> fields;
 		auto &children = StructType::GetChildTypes(type);

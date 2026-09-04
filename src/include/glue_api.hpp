@@ -80,6 +80,17 @@ public:
 	static bool GetTable(ClientContext &context, GlueCatalog &catalog, const string &database_name,
 	                     const string &table_name, GlueTableInfo &result);
 
+	//! Create a database, throws a CatalogException if it already exists
+	static void CreateDatabase(ClientContext &context, GlueCatalog &catalog, const GlueDatabaseInfo &database);
+	//! Delete a database (and all of its tables), throws a CatalogException if it does not exist
+	static void DeleteDatabase(ClientContext &context, GlueCatalog &catalog, const string &database_name);
+	//! Create an Iceberg table from the columns and location in 'table'. Glue writes the initial Iceberg metadata
+	//! file to the table location itself.
+	static void CreateIcebergTable(ClientContext &context, GlueCatalog &catalog, const GlueTableInfo &table);
+	//! Delete a table (the data files are left in place), throws a CatalogException if it does not exist
+	static void DeleteTable(ClientContext &context, GlueCatalog &catalog, const string &database_name,
+	                        const string &table_name);
+
 private:
 	//! Get (or create) the Glue client for the catalog, using the credentials of the configured DuckDB secret
 	static std::shared_ptr<Aws::Glue::GlueClient> GetClient(ClientContext &context, GlueCatalog &catalog);

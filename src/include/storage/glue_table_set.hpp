@@ -25,11 +25,15 @@ public:
 	void RemoveEntry(const string &name);
 	void ClearEntries();
 
-	//! Build a table catalog entry from a Glue table definition
+	//! Build a table catalog entry from a Glue table definition, using the (lossy) Glue column definitions
 	unique_ptr<GlueTable> CreateTableEntry(const GlueTableInfo &table);
 
 private:
 	void LoadEntries(ClientContext &context);
+	//! For open table formats the Glue column definitions are lossy (e.g. Iceberg 'timestamptz' is listed as
+	//! 'timestamp'). Before an entry is used to plan a query, rebuild it with the columns of the table format's own
+	//! schema. Entries produced by a listing (Scan) keep the Glue columns to avoid reading every table's metadata.
+	GlueTable &ResolveEntry(ClientContext &context, GlueTable &entry);
 
 private:
 	GlueSchemaEntry &schema;

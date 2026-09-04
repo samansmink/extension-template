@@ -2,6 +2,7 @@
 
 #include "duckdb/parser/column_definition.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
+#include "duckdb/function/table_function.hpp"
 
 #include "glue_types.hpp"
 #include "storage/glue_catalog.hpp"
@@ -40,12 +41,35 @@ void GlueTableSet::LoadEntries(ClientContext &context) {
 	is_loaded = true;
 }
 
+GlueTable &GlueTableSet::ResolveEntry(ClientContext &context, GlueTable &entry) {
+	if (entry.schema_resolved || entry.table_info.GetFormat() != GlueTableFormat::ICEBERG) {
+		return entry;
+	}
+	auto table = entry.table_info;
+	unique_ptr<FunctionData> bind_data;
+	vector<Identifier> names;
+	vector<LogicalType> types;
+	GlueTable::BindIcebergScan(context, table, bind_data, names, types);
+
+	CreateTableInfo info(schema, Identifier(table.name));
+	for (idx_t i = 0; i < names.size(); i++) {
+		info.columns.AddColumn(ColumnDefinition(names[i], types[i]));
+	}
+	auto resolved = make_uniq<GlueTable>(catalog, schema, info, std::move(table));
+	resolved->schema_resolved = true;
+	auto &result = *resolved;
+	auto name = entry.name.GetIdentifierName();
+	entries.erase(name);
+	entries.emplace(name, std::move(resolved));
+	return result;
+}
+
 optional_ptr<CatalogEntry> GlueTableSet::GetEntry(ClientContext &context, const EntryLookupInfo &lookup) {
 	auto &name = lookup.GetEntryName();
 	lock_guard<mutex> guard(entry_lock);
 	auto entry = entries.find(name);
 	if (entry != entries.end()) {
-		return entry->second.get();
+		return &ResolveEntry(context, *entry->second);
 	}
 	// not cached, ask Glue for this table directly
 	GlueTableInfo table;
@@ -53,7 +77,7 @@ optional_ptr<CatalogEntry> GlueTableSet::GetEntry(ClientContext &context, const 
 		return nullptr;
 	}
 	auto result = entries.emplace(table.name, CreateTableEntry(table));
-	return result.first->second.get();
+	return &ResolveEntry(context, *result.first->second);
 }
 
 void GlueTableSet::Scan(ClientContext &context, const std::function<void(CatalogEntry &)> &callback) {

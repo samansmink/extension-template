@@ -24,13 +24,25 @@ public:
 	//! scan can not rely on the (cached) table info the entry was created from.
 	GlueTableInfo RefreshTableInfo(ClientContext &context) const;
 
+	//! Bind the iceberg extension's 'iceberg_scan' on an Iceberg metadata file, returning the scan function and the
+	//! columns it produces. Throws if the iceberg extension is not loaded.
+	static TableFunction BindIcebergScan(ClientContext &context, const GlueTableInfo &table_info,
+	                                     unique_ptr<FunctionData> &bind_data, vector<Identifier> &names,
+	                                     vector<LogicalType> &types);
+
 private:
+	//! Throw if the columns Glue reports differ from the columns the scan produces
+	void VerifyScanColumns(const GlueTableInfo &latest_info, const vector<Identifier> &scan_names,
+	                       const vector<LogicalType> &scan_types) const;
 	TableFunction GetIcebergScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data,
 	                                     const GlueTableInfo &latest_info);
 
 public:
 	//! The table definition as returned by Glue when the entry was created
 	GlueTableInfo table_info;
+	//! Whether the columns of this entry were taken from the table format's own schema (Iceberg metadata) rather
+	//! than from the (lossy) Glue column definitions
+	bool schema_resolved = false;
 };
 
 } // namespace duckdb

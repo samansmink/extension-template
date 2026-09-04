@@ -2,6 +2,7 @@
 
 #include "duckdb/catalog/catalog_entry/table_function_catalog_entry.hpp"
 #include "duckdb/common/exception.hpp"
+#include "duckdb/common/string_util.hpp"
 #include "duckdb/main/database.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
 #include "duckdb/storage/statistics/base_statistics.hpp"
@@ -52,12 +53,13 @@ TableFunction GlueTable::GetScanFunction(ClientContext &context, unique_ptr<Func
 	}
 }
 
-TableFunction GlueTable::GetIcebergScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data,
-                                                const GlueTableInfo &latest_info) {
-	auto metadata_location = latest_info.GetMetadataLocation();
+TableFunction GlueTable::BindIcebergScan(ClientContext &context, const GlueTableInfo &table_info,
+                                         unique_ptr<FunctionData> &bind_data, vector<Identifier> &names,
+                                         vector<LogicalType> &types) {
+	auto metadata_location = table_info.GetMetadataLocation();
 	if (metadata_location.empty()) {
 		throw InvalidInputException("Iceberg table '%s.%s' has no 'metadata_location' parameter in Glue",
-		                            latest_info.database_name, latest_info.name);
+		                            table_info.database_name, table_info.name);
 	}
 
 	// The iceberg extension provides the actual scan, look it up in the system catalog
@@ -68,23 +70,62 @@ TableFunction GlueTable::GetIcebergScanFunction(ClientContext &context, unique_p
 	auto catalog_entry = catalog_schema.GetEntry(data, CatalogType::TABLE_FUNCTION_ENTRY, "iceberg_scan");
 	if (!catalog_entry) {
 		throw MissingExtensionException(
-		    "Scanning Iceberg table '%s.%s' requires the iceberg extension, LOAD it and try again",
-		    latest_info.database_name, latest_info.name);
+		    "Reading Iceberg table '%s.%s' requires the iceberg extension, LOAD it and try again",
+		    table_info.database_name, table_info.name);
 	}
 	auto &iceberg_scan_function_set = catalog_entry->Cast<TableFunctionCatalogEntry>();
 	auto iceberg_scan_function =
 	    *iceberg_scan_function_set.functions.GetFunctionByArguments(context, {LogicalType::VARCHAR});
 
 	named_parameter_map_t param_map;
+	TableFunctionRef empty_ref;
+	vector<Value> inputs = {Value(metadata_location)};
+	TableFunctionBindInput bind_input(inputs, param_map, types, names, nullptr, nullptr, iceberg_scan_function,
+	                                  empty_ref);
+	bind_data = iceberg_scan_function.bind(context, bind_input, types, names);
+	return iceberg_scan_function;
+}
+
+TableFunction GlueTable::GetIcebergScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data,
+                                                const GlueTableInfo &latest_info) {
 	vector<LogicalType> return_types;
 	vector<Identifier> names;
-	TableFunctionRef empty_ref;
+	auto iceberg_scan_function = BindIcebergScan(context, latest_info, bind_data, names, return_types);
 
-	vector<Value> inputs = {Value(metadata_location)};
-	TableFunctionBindInput bind_input(inputs, param_map, return_types, names, nullptr, nullptr, iceberg_scan_function,
-	                                  empty_ref);
-	bind_data = iceberg_scan_function.bind(context, bind_input, return_types, names);
+	// The binder plans the scan with the columns of this catalog entry, while the data is produced with the
+	// columns of the (current) Iceberg schema. Make sure the two agree before handing out the scan.
+	VerifyScanColumns(latest_info, names, return_types);
 	return iceberg_scan_function;
+}
+
+void GlueTable::VerifyScanColumns(const GlueTableInfo &latest_info, const vector<Identifier> &scan_names,
+                                  const vector<LogicalType> &scan_types) const {
+	auto &table_columns = GetColumns();
+	if (table_columns.PhysicalColumnCount() != scan_names.size()) {
+		throw BinderException("The catalog entry of table '%s.%s' has %d columns but its current Iceberg schema has "
+		                      "%d columns, the table changed since it was loaded, re-attach the catalog to pick up "
+		                      "the new schema",
+		                      latest_info.database_name, latest_info.name, table_columns.PhysicalColumnCount(),
+		                      scan_names.size());
+	}
+	idx_t i = 0;
+	for (auto &column : table_columns.Physical()) {
+		auto &scan_name = scan_names[i].GetIdentifierName();
+		auto &scan_type = scan_types[i];
+		i++;
+		if (!StringUtil::CIEquals(column.Name().GetIdentifierName(), scan_name)) {
+			throw BinderException(
+			    "Column %d of Glue table '%s.%s' is named '%s' in the catalog entry but '%s' in the current Iceberg "
+			    "schema, the table changed since it was loaded, re-attach the catalog to pick up the new schema",
+			    i, latest_info.database_name, latest_info.name, column.Name().GetIdentifierName(), scan_name);
+		}
+		if (column.Type() != scan_type) {
+			throw BinderException(
+			    "Column '%s' of Glue table '%s.%s' has type %s in the catalog entry but %s in the current Iceberg "
+			    "schema, the table changed since it was loaded, re-attach the catalog to pick up the new schema",
+			    scan_name, latest_info.database_name, latest_info.name, column.Type().ToString(), scan_type.ToString());
+		}
+	}
 }
 
 } // namespace duckdb

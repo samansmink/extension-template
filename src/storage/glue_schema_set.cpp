@@ -12,8 +12,8 @@ GlueSchemaSet::GlueSchemaSet(GlueCatalog &catalog) : catalog(catalog) {
 
 unique_ptr<GlueSchemaEntry> GlueSchemaSet::CreateSchemaEntry(const GlueDatabaseInfo &database) {
 	CreateSchemaInfo info;
-	info.SetQualifiedName(QualifiedName(info.GetQualifiedName().Catalog(), Identifier(database.name),
-	                                    info.GetQualifiedName().Name()));
+	info.SetQualifiedName(
+	    QualifiedName(info.GetQualifiedName().Catalog(), Identifier(database.name), info.GetQualifiedName().Name()));
 	info.internal = false;
 	return make_uniq<GlueSchemaEntry>(catalog, info, database);
 }

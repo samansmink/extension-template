@@ -54,6 +54,10 @@ public:
 	optional_ptr<SchemaCatalogEntry> LookupSchema(CatalogTransaction transaction, const EntryLookupInfo &schema_lookup,
 	                                              OnEntryNotFound if_not_found) override;
 	GlueSchemaSet &GetSchemas();
+	//! The S3 location a new database gets: <default_location>/<database>
+	string GetDatabaseLocation(const string &database_name) const;
+	//! The S3 location a new table gets: <database LocationUri>/<table>, or <default_location>/<database>/<table>
+	string GetTableLocation(const GlueDatabaseInfo &database, const string &table_name) const;
 
 	PhysicalOperator &PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner, LogicalInsert &op,
 	                             optional_ptr<PhysicalOperator> plan) override;

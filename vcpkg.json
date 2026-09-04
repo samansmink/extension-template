@@ -1,13 +1,29 @@
 {
-        "dependencies": [
-                "openssl"
-        ],
-        "vcpkg-configuration": {
-                "overlay-ports": [
-                        "./extension-ci-tools/vcpkg_ports"
-                ],
-                "overlay-triplets": [
-                        "./extension-ci-tools/toolchains"
-                ]
-        }
+	"dependencies": [
+		"openssl",
+		"curl",
+		"zlib",
+		"snappy",
+		"liblzma",
+		"jansson",
+		"roaring",
+		{
+			"name": "aws-sdk-cpp",
+			"features": [
+				"glue",
+				"sso",
+				"sts",
+				"identity-management",
+				"rds",
+				"redshift",
+				"cloudformation"
+			]
+		}
+	],
+	"vcpkg-configuration": {
+		"overlay-ports": [
+			"./extension-ci-tools/vcpkg_ports"
+		]
+	},
+	"builtin-baseline": "84bab45d415d22042bd0b9081aea57f362da3f35"
 }

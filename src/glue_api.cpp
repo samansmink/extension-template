@@ -19,6 +19,10 @@
 #include <aws/glue/model/GetDatabasesRequest.h>
 #include <aws/glue/model/GetTableRequest.h>
 #include <aws/glue/model/GetTablesRequest.h>
+#include <aws/glue/model/CreateDatabaseRequest.h>
+#include <aws/glue/model/CreateTableRequest.h>
+#include <aws/glue/model/DeleteDatabaseRequest.h>
+#include <aws/glue/model/DeleteTableRequest.h>
 
 #include <sys/stat.h>
 
@@ -115,17 +119,16 @@ void InitAWSAPI() {
 
 //! Grab the first path that exists, from a list of well-known CA bundle locations
 string SelectCURLCertPath() {
-	static const char *cert_file_locations[] = {
-	    // Arch, Debian-based, Gentoo
-	    "/etc/ssl/certs/ca-certificates.crt",
-	    // RedHat 7 based
-	    "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
-	    // Redhat 6 based
-	    "/etc/pki/tls/certs/ca-bundle.crt",
-	    // OpenSUSE
-	    "/etc/ssl/ca-bundle.pem",
-	    // Alpine
-	    "/etc/ssl/cert.pem"};
+	static const char *cert_file_locations[] = {// Arch, Debian-based, Gentoo
+	                                            "/etc/ssl/certs/ca-certificates.crt",
+	                                            // RedHat 7 based
+	                                            "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+	                                            // Redhat 6 based
+	                                            "/etc/pki/tls/certs/ca-bundle.crt",
+	                                            // OpenSUSE
+	                                            "/etc/ssl/ca-bundle.pem",
+	                                            // Alpine
+	                                            "/etc/ssl/cert.pem"};
 	for (auto &ca_file : cert_file_locations) {
 		struct stat buf;
 		if (stat(ca_file, &buf) == 0) {
@@ -347,6 +350,145 @@ bool GlueAPI::GetTable(ClientContext &context, GlueCatalog &catalog, const strin
 	}
 	result = ToTableInfo(outcome.GetResult().GetTable());
 	return true;
+}
+
+} // namespace duckdb
+
+//===--------------------------------------------------------------------===//
+// Write API
+//===--------------------------------------------------------------------===//
+namespace duckdb {
+
+namespace {
+
+template <class OUTCOME>
+bool IsAlreadyExists(const OUTCOME &outcome) {
+	return outcome.GetError().GetErrorType() == Aws::Glue::GlueErrors::ALREADY_EXISTS;
+}
+
+Aws::Map<Aws::String, Aws::String> ToAwsMap(const unordered_map<string, string> &input) {
+	Aws::Map<Aws::String, Aws::String> result;
+	for (auto &entry : input) {
+		result.emplace(entry.first, entry.second);
+	}
+	return result;
+}
+
+Aws::Vector<Aws::Glue::Model::Column> ToAwsColumns(const vector<GlueColumn> &input) {
+	Aws::Vector<Aws::Glue::Model::Column> result;
+	for (auto &column : input) {
+		Aws::Glue::Model::Column aws_column;
+		aws_column.SetName(column.name);
+		aws_column.SetType(column.type);
+		if (!column.comment.empty()) {
+			aws_column.SetComment(column.comment);
+		}
+		result.push_back(std::move(aws_column));
+	}
+	return result;
+}
+
+} // namespace
+
+void GlueAPI::CreateDatabase(ClientContext &context, GlueCatalog &catalog, const GlueDatabaseInfo &database) {
+	auto client = GetClient(context, catalog);
+	Aws::Glue::Model::DatabaseInput input;
+	input.SetName(database.name);
+	if (!database.description.empty()) {
+		input.SetDescription(database.description);
+	}
+	if (!database.location_uri.empty()) {
+		input.SetLocationUri(database.location_uri);
+	}
+	if (!database.parameters.empty()) {
+		input.SetParameters(ToAwsMap(database.parameters));
+	}
+	Aws::Glue::Model::CreateDatabaseRequest request;
+	SetCatalogId(request, catalog);
+	request.SetDatabaseInput(input);
+	auto outcome = client->CreateDatabase(request);
+	if (!outcome.IsSuccess()) {
+		if (IsAlreadyExists(outcome)) {
+			throw CatalogException("Glue database with name \"%s\" already exists", database.name);
+		}
+		ThrowGlueError(outcome, StringUtil::Format("CreateDatabase '%s'", database.name));
+	}
+}
+
+void GlueAPI::DeleteDatabase(ClientContext &context, GlueCatalog &catalog, const string &database_name) {
+	auto client = GetClient(context, catalog);
+	Aws::Glue::Model::DeleteDatabaseRequest request;
+	SetCatalogId(request, catalog);
+	request.SetName(database_name);
+	auto outcome = client->DeleteDatabase(request);
+	if (!outcome.IsSuccess()) {
+		if (IsEntityNotFound(outcome)) {
+			throw CatalogException("Glue database with name \"%s\" does not exist", database_name);
+		}
+		ThrowGlueError(outcome, StringUtil::Format("DeleteDatabase '%s'", database_name));
+	}
+}
+
+void GlueAPI::CreateIcebergTable(ClientContext &context, GlueCatalog &catalog, const GlueTableInfo &table) {
+	if (table.location.empty()) {
+		throw InvalidInputException("Can not create Iceberg table '%s.%s' without a location", table.database_name,
+		                            table.name);
+	}
+	auto client = GetClient(context, catalog);
+
+	Aws::Glue::Model::StorageDescriptor storage_descriptor;
+	storage_descriptor.SetLocation(table.location);
+	storage_descriptor.SetColumns(ToAwsColumns(table.columns));
+
+	Aws::Glue::Model::TableInput table_input;
+	table_input.SetName(table.name);
+	table_input.SetTableType("EXTERNAL_TABLE");
+	table_input.SetStorageDescriptor(storage_descriptor);
+	if (!table.partition_keys.empty()) {
+		table_input.SetPartitionKeys(ToAwsColumns(table.partition_keys));
+	}
+	if (!table.parameters.empty()) {
+		table_input.SetParameters(ToAwsMap(table.parameters));
+	}
+
+	// Let Glue create the Iceberg metadata (format version 2) at the table location
+	Aws::Glue::Model::IcebergInput iceberg_input;
+	iceberg_input.SetMetadataOperation(Aws::Glue::Model::MetadataOperation::CREATE);
+	iceberg_input.SetVersion("2");
+	Aws::Glue::Model::OpenTableFormatInput open_table_format_input;
+	open_table_format_input.SetIcebergInput(iceberg_input);
+
+	Aws::Glue::Model::CreateTableRequest request;
+	SetCatalogId(request, catalog);
+	request.SetDatabaseName(table.database_name);
+	request.SetTableInput(table_input);
+	request.SetOpenTableFormatInput(open_table_format_input);
+	auto outcome = client->CreateTable(request);
+	if (!outcome.IsSuccess()) {
+		if (IsAlreadyExists(outcome)) {
+			throw CatalogException("Table with name \"%s\" already exists in Glue database \"%s\"", table.name,
+			                       table.database_name);
+		}
+		ThrowGlueError(outcome, StringUtil::Format("CreateTable '%s.%s' (location '%s')", table.database_name,
+		                                           table.name, table.location));
+	}
+}
+
+void GlueAPI::DeleteTable(ClientContext &context, GlueCatalog &catalog, const string &database_name,
+                          const string &table_name) {
+	auto client = GetClient(context, catalog);
+	Aws::Glue::Model::DeleteTableRequest request;
+	SetCatalogId(request, catalog);
+	request.SetDatabaseName(database_name);
+	request.SetName(table_name);
+	auto outcome = client->DeleteTable(request);
+	if (!outcome.IsSuccess()) {
+		if (IsEntityNotFound(outcome)) {
+			throw CatalogException("Table with name \"%s\" does not exist in Glue database \"%s\"", table_name,
+			                       database_name);
+		}
+		ThrowGlueError(outcome, StringUtil::Format("DeleteTable '%s.%s'", database_name, table_name));
+	}
 }
 
 } // namespace duckdb

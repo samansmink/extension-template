@@ -2,6 +2,7 @@
 
 #include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
 #include "duckdb/common/exception.hpp"
+#include "duckdb/common/string_util.hpp"
 #include "duckdb/main/attached_database.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/database.hpp"
@@ -75,11 +76,61 @@ GlueSchemaSet &GlueCatalog::GetSchemas() {
 }
 
 optional_ptr<CatalogEntry> GlueCatalog::CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) {
-	throw NotImplementedException("GlueCatalog::CreateSchema");
+	auto &context = transaction.GetContext();
+	auto schema_name = info.SchemaName().GetIdentifierName();
+
+	auto existing = schemas.GetEntry(context, schema_name);
+	if (existing) {
+		switch (info.on_conflict) {
+		case OnCreateConflict::IGNORE_ON_CONFLICT:
+			return nullptr;
+		case OnCreateConflict::ERROR_ON_CONFLICT:
+			throw CatalogException("Schema with name \"%s\" already exists in Glue catalog \"%s\"", schema_name,
+			                       GetName().GetIdentifierName());
+		default:
+			throw NotImplementedException("CREATE OR REPLACE SCHEMA is not supported for Glue catalogs");
+		}
+	}
+
+	GlueDatabaseInfo database;
+	database.name = schema_name;
+	database.location_uri = GetDatabaseLocation(schema_name);
+	GlueAPI::CreateDatabase(context, *this, database);
+
+	// re-fetch so the cached entry reflects what Glue stored
+	GlueDatabaseInfo created;
+	if (!GlueAPI::GetDatabase(context, *this, schema_name, created)) {
+		throw CatalogException("Glue database \"%s\" was created but could not be fetched afterwards", schema_name);
+	}
+	return schemas.CreateEntry(schemas.CreateSchemaEntry(created));
 }
 
 void GlueCatalog::DropSchema(ClientContext &context, DropInfo &info) {
-	throw NotImplementedException("GlueCatalog::DropSchema");
+	auto schema_name = info.GetQualifiedName().Name().GetIdentifierName();
+	auto existing = schemas.GetEntry(context, schema_name);
+	if (!existing) {
+		if (info.if_not_found == OnEntryNotFound::RETURN_NULL) {
+			return;
+		}
+		throw CatalogException("Schema with name \"%s\" does not exist in Glue catalog \"%s\"", schema_name,
+		                       GetName().GetIdentifierName());
+	}
+	// NOTE: Glue deletes every table in the database along with it, regardless of CASCADE
+	GlueAPI::DeleteDatabase(context, *this, schema_name);
+	schemas.RemoveEntry(schema_name);
+}
+
+string GlueCatalog::GetDatabaseLocation(const string &database_name) const {
+	return options.default_location + "/" + database_name;
+}
+
+string GlueCatalog::GetTableLocation(const GlueDatabaseInfo &database, const string &table_name) const {
+	if (!database.location_uri.empty()) {
+		auto location = database.location_uri;
+		StringUtil::RTrim(location, "/");
+		return location + "/" + table_name;
+	}
+	return GetDatabaseLocation(database.name) + "/" + table_name;
 }
 
 void GlueCatalog::ScanSchemas(ClientContext &context, std::function<void(SchemaCatalogEntry &)> callback) {
