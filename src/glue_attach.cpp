@@ -69,6 +69,8 @@ void AttachIcebergCatalog(ClientContext &context, GlueCatalog &catalog) {
 	AttachOptions attach_options(context.db->config.options);
 	attach_options.access_mode = catalog.access_mode;
 	attach_options.db_type = "iceberg";
+	// Keep the child out of SHOW DATABASES / SHOW ALL TABLES / information_schema, it is only reachable by name
+	attach_options.visibility = AttachVisibility::HIDDEN;
 
 	auto &db_manager = DatabaseManager::Get(context);
 	catalog.SetIcebergDatabase(db_manager.AttachDatabase(context, info, attach_options));

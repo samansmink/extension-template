@@ -33,6 +33,6 @@ statement ok
 CREATE TABLE my_datalake.default.test_table (a int);
 
 query II
-SELECT table_name, column_name FROM information_schema.columns where table_name = 'test_table' and table_catalog = 'my_datalake';
+SELECT table_name, column_name FROM information_schema.columns where table_name = 'test_table';
 ----
 test_table	a
