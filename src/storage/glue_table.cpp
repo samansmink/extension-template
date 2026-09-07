@@ -52,7 +52,7 @@ void GlueTable::BindUpdateConstraints(Binder &binder, LogicalGet &get, LogicalPr
 //===--------------------------------------------------------------------===//
 TableCatalogEntry &GlueTable::LookupIcebergEntry(ClientContext &context, GlueCatalog &glue_catalog,
                                                  const Identifier &schema_name, const EntryLookupInfo &lookup) {
-	auto &iceberg_catalog = glue_catalog.GetIcebergCatalog(context);
+	auto &iceberg_catalog = glue_catalog.GetIcebergCatalog();
 	auto &iceberg_schema = iceberg_catalog.GetSchema(context, schema_name);
 	auto entry = iceberg_schema.LookupEntry(iceberg_catalog.GetCatalogTransaction(context), lookup);
 	if (!entry) {

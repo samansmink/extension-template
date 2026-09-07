@@ -79,10 +79,11 @@ public:
 	string GetDBPath() override;
 	void OnDetach(ClientContext &context) override;
 
-	//! Iceberg tables are read and written through the iceberg extension. For that, this Glue catalog is attached a
-	//! second time (lazily, hidden) as an Iceberg catalog on Glue's Iceberg REST endpoint; the Glue entries proxy
-	//! scans and DML to the entries of that child catalog.
-	Catalog &GetIcebergCatalog(ClientContext &context);
+	//! Iceberg tables are read and written through the iceberg extension. For that, GlueAttach::Attach attaches this
+	//! Glue catalog a second time (hidden) as an Iceberg catalog on Glue's Iceberg REST endpoint; the Glue entries
+	//! proxy scans and DML to the entries of that child catalog.
+	void SetIcebergDatabase(shared_ptr<AttachedDatabase> database);
+	Catalog &GetIcebergCatalog();
 
 public:
 	AccessMode access_mode;
@@ -99,9 +100,10 @@ private:
 
 private:
 	GlueSchemaSet schemas;
-	mutex child_lock;
+	//! The hidden child Iceberg catalog (see SetIcebergDatabase)
+	//! This is a hack for now to allow Iceberg DML. What happens is anytime DML is detected, we defer
+	//! to the Iceberg catalog to do planning, execution, and committing.
 	shared_ptr<AttachedDatabase> iceberg_database;
-	Identifier iceberg_database_name;
 };
 
 } // namespace duckdb

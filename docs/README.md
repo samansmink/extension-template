@@ -23,7 +23,7 @@ Attach options:
 
 ## Writing
 
-INSERT, DELETE, UPDATE and MERGE INTO on Iceberg tables are executed by the iceberg extension: on first use the Glue
+INSERT, DELETE, UPDATE and MERGE INTO on Iceberg tables are executed by the iceberg extension: when attached, the Glue
 catalog attaches itself a second time as a hidden Iceberg catalog (`__glue_internal_<uuid>`, using Glue's Iceberg
 REST endpoint and the same secret) and forwards scans and DML planning to that catalog's table entries. The hidden
 catalog is visible in `SHOW DATABASES` and is detached together with the Glue catalog.

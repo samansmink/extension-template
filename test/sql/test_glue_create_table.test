@@ -6,6 +6,8 @@ require httpfs
 
 require aws
 
+require iceberg
+
 require glue
 
 statement ok
@@ -31,6 +33,6 @@ statement ok
 CREATE TABLE my_datalake.default.test_table (a int);
 
 query II
-SELECT table_name, column_name FROM information_schema.columns where table_name = 'test_table';
+SELECT table_name, column_name FROM information_schema.columns where table_name = 'test_table' and table_catalog = 'my_datalake';
 ----
 test_table	a

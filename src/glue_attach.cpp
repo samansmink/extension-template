@@ -2,7 +2,11 @@
 
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
+#include "duckdb/common/types/uuid.hpp"
 #include "duckdb/main/attached_database.hpp"
+#include "duckdb/main/database.hpp"
+#include "duckdb/main/database_manager.hpp"
+#include "duckdb/main/extension_helper.hpp"
 #include "duckdb/main/secret/secret.hpp"
 
 #include "glue_api.hpp"
@@ -36,6 +40,38 @@ void SanityCheckGlueCatalogPath(const string &path) {
 	    "Invalid Glue Catalog Format: '%s'. Expected format: ':', '12-digit account ID', "
 	    "'catalog1/catalog2', or '12-digit accountId:catalog1/catalog2'.",
 	    path);
+}
+
+//! Iceberg tables are read and written by the iceberg extension. Attach the same Glue catalog a second time, hidden,
+//! as an Iceberg catalog on Glue's Iceberg REST endpoint:
+//!   ATTACH '<catalog id>' AS __glue_internal_<uuid> (TYPE ICEBERG, ENDPOINT_TYPE 'GLUE', SECRET '<secret>')
+//! The Glue table entries proxy their scans and DML to the entries of this child catalog.
+void AttachIcebergCatalog(ClientContext &context, GlueCatalog &catalog) {
+	auto &db = DatabaseInstance::GetDatabase(context);
+	if (!db.ExtensionIsLoaded("iceberg")) {
+		ExtensionHelper::TryAutoLoadExtension(db, "iceberg");
+	}
+	if (!db.ExtensionIsLoaded("iceberg")) {
+		throw MissingExtensionException(
+		    "Attaching Glue catalog '%s' requires the iceberg extension (Iceberg tables are read and written through "
+		    "it), LOAD it and try again",
+		    catalog.options.name);
+	}
+
+	auto &options = catalog.options;
+	AttachInfo info;
+	info.name = Identifier("__glue_internal_" + UUID::ToString(UUID::GenerateRandomUUID()));
+	info.path = options.path;
+	info.options = {{"type", Value("iceberg")}, {"endpoint_type", Value("glue")}};
+	if (!options.secret_name.empty()) {
+		info.options["secret"] = Value(options.secret_name);
+	}
+	AttachOptions attach_options(context.db->config.options);
+	attach_options.access_mode = catalog.access_mode;
+	attach_options.db_type = "iceberg";
+
+	auto &db_manager = DatabaseManager::Get(context);
+	catalog.SetIcebergDatabase(db_manager.AttachDatabase(context, info, attach_options));
 }
 
 } // namespace
@@ -95,6 +131,8 @@ unique_ptr<Catalog> GlueAttach::Attach(optional_ptr<StorageExtensionInfo> storag
 			                                    catalog->options.path);
 		}
 	}
+	// Last step, so nothing after it can fail and leave the child attached without its parent
+	AttachIcebergCatalog(context, *catalog);
 	return std::move(catalog);
 }
 

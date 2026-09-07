@@ -10,9 +10,7 @@
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "duckdb/storage/database_size.hpp"
 
-#include "duckdb/common/types/uuid.hpp"
 #include "duckdb/main/database_manager.hpp"
-#include "duckdb/main/extension_helper.hpp"
 #include "duckdb/planner/operator/logical_delete.hpp"
 #include "duckdb/planner/operator/logical_insert.hpp"
 #include "duckdb/planner/operator/logical_merge_into.hpp"
@@ -165,47 +163,25 @@ optional_ptr<SchemaCatalogEntry> GlueCatalog::LookupSchema(CatalogTransaction tr
 //===--------------------------------------------------------------------===//
 // Child Iceberg catalog
 //===--------------------------------------------------------------------===//
-Catalog &GlueCatalog::GetIcebergCatalog(ClientContext &context) {
-	lock_guard<mutex> guard(child_lock);
-	if (iceberg_database) {
-		return iceberg_database->GetCatalog();
-	}
-	auto &db = DatabaseInstance::GetDatabase(context);
-	if (!db.ExtensionIsLoaded("iceberg")) {
-		ExtensionHelper::TryAutoLoadExtension(db, "iceberg");
-	}
-	if (!db.ExtensionIsLoaded("iceberg")) {
-		throw MissingExtensionException(
-		    "Reading and writing Iceberg tables through Glue catalog '%s' requires the iceberg extension, LOAD it "
-		    "and try again",
-		    GetName().GetIdentifierName());
-	}
+void GlueCatalog::SetIcebergDatabase(shared_ptr<AttachedDatabase> database) {
+	D_ASSERT(!iceberg_database);
+	iceberg_database = std::move(database);
+}
 
-	// ATTACH '<catalog id>' AS __glue_internal_<uuid> (TYPE ICEBERG, ENDPOINT_TYPE 'GLUE', SECRET '<secret>')
-	AttachInfo info;
-	info.name = Identifier("__glue_internal_" + UUID::ToString(UUID::GenerateRandomUUID()));
-	info.path = options.path;
-	info.options = {{"type", Value("iceberg")}, {"endpoint_type", Value("glue")}};
-	if (!options.secret_name.empty()) {
-		info.options["secret"] = Value(options.secret_name);
+Catalog &GlueCatalog::GetIcebergCatalog() {
+	if (!iceberg_database) {
+		throw InternalException("Glue catalog '%s' has no child Iceberg catalog attached", GetName().GetIdentifierName());
 	}
-	AttachOptions attach_options(context.db->config.options);
-	attach_options.access_mode = access_mode;
-	attach_options.db_type = "iceberg";
-
-	auto &db_manager = DatabaseManager::Get(context);
-	iceberg_database = db_manager.AttachDatabase(context, info, attach_options);
-	iceberg_database_name = info.name;
 	return iceberg_database->GetCatalog();
 }
 
 void GlueCatalog::OnDetach(ClientContext &context) {
-	lock_guard<mutex> guard(child_lock);
 	if (!iceberg_database) {
 		return;
 	}
+	auto name = iceberg_database->GetCatalog().GetName();
 	iceberg_database.reset();
-	DatabaseManager::Get(context).DetachDatabase(context, iceberg_database_name, OnEntryNotFound::RETURN_NULL);
+	DatabaseManager::Get(context).DetachDatabase(context, name, OnEntryNotFound::RETURN_NULL);
 }
 
 Catalog &GlueCatalog::GetIcebergCatalogForDML(ClientContext &context, TableCatalogEntry &table) {
@@ -214,7 +190,7 @@ Catalog &GlueCatalog::GetIcebergCatalogForDML(ClientContext &context, TableCatal
 		throw NotImplementedException("Writing to Glue table '%s' with type %s is not supported",
 		                              table.name.GetIdentifierName(), glue_table.table_info.GetFormatName());
 	}
-	return GetIcebergCatalog(context);
+	return GetIcebergCatalog();
 }
 
 //===--------------------------------------------------------------------===//
