@@ -77,6 +77,12 @@ public:
 	DatabaseSize GetDatabaseSize(ClientContext &context) override;
 	bool InMemory() override;
 	string GetDBPath() override;
+	void OnDetach(ClientContext &context) override;
+
+	//! Iceberg tables are read and written through the iceberg extension. For that, this Glue catalog is attached a
+	//! second time (lazily, hidden) as an Iceberg catalog on Glue's Iceberg REST endpoint; the Glue entries proxy
+	//! scans and DML to the entries of that child catalog.
+	Catalog &GetIcebergCatalog(ClientContext &context);
 
 public:
 	AccessMode access_mode;
@@ -88,7 +94,14 @@ public:
 	std::shared_ptr<Aws::Glue::GlueClient> glue_client;
 
 private:
+	//! The child Iceberg catalog to use for DML on 'table', throws if the table is not an Iceberg table
+	Catalog &GetIcebergCatalogForDML(ClientContext &context, TableCatalogEntry &table);
+
+private:
 	GlueSchemaSet schemas;
+	mutex child_lock;
+	shared_ptr<AttachedDatabase> iceberg_database;
+	Identifier iceberg_database_name;
 };
 
 } // namespace duckdb

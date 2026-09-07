@@ -2,7 +2,7 @@
 
 #include "duckdb/parser/column_definition.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
-#include "duckdb/function/table_function.hpp"
+#include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
 
 #include "glue_types.hpp"
 #include "storage/glue_catalog.hpp"
@@ -45,18 +45,20 @@ GlueTable &GlueTableSet::ResolveEntry(ClientContext &context, GlueTable &entry) 
 	if (entry.schema_resolved || entry.table_info.GetFormat() != GlueTableFormat::ICEBERG) {
 		return entry;
 	}
+	// Take the columns from the iceberg extension's entry of this table, so that DuckDB plans scans and DML
+	// with exactly the columns the iceberg extension produces and expects
 	auto table = entry.table_info;
-	unique_ptr<FunctionData> bind_data;
-	vector<Identifier> names;
-	vector<LogicalType> types;
-	GlueTable::BindIcebergScan(context, table, bind_data, names, types);
+	EntryLookupInfo lookup(CatalogType::TABLE_ENTRY, QualifiedName(Identifier(table.name)));
+	auto &iceberg_entry = GlueTable::LookupIcebergEntry(context, catalog, schema.name, lookup);
 
 	CreateTableInfo info(schema, Identifier(table.name));
-	for (idx_t i = 0; i < names.size(); i++) {
-		info.columns.AddColumn(ColumnDefinition(names[i], types[i]));
+	for (auto &column : iceberg_entry.GetColumns().Logical()) {
+		info.columns.AddColumn(ColumnDefinition(column.Name(), column.Type()));
 	}
 	auto resolved = make_uniq<GlueTable>(catalog, schema, info, std::move(table));
 	resolved->schema_resolved = true;
+	resolved->virtual_columns = iceberg_entry.GetVirtualColumns();
+	resolved->row_id_columns = iceberg_entry.GetRowIdColumns();
 	auto &result = *resolved;
 	auto name = entry.name.GetIdentifierName();
 	entries.erase(name);

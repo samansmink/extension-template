@@ -6,9 +6,11 @@
 #include "glue_api.hpp"
 
 namespace duckdb {
+class GlueCatalog;
 
-//! A table registered in the Glue Data Catalog. The table can be of any format (Iceberg, Delta, Hive, ...),
-//! scanning is dispatched based on the format when the scan function is requested.
+//! A table registered in the Glue Data Catalog. The table can be of any format (Iceberg, Delta, Hive, ...).
+//! Iceberg tables are proxied to the entry of the hidden child Iceberg catalog (see GlueCatalog::GetIcebergCatalog):
+//! scans, virtual columns, row ids and DML all come from there, so the iceberg extension handles them natively.
 class GlueTable : public TableCatalogEntry {
 public:
 	GlueTable(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info, GlueTableInfo table_info);
@@ -16,33 +18,29 @@ public:
 public:
 	unique_ptr<BaseStatistics> GetStatistics(ClientContext &context, column_t column_id) override;
 	TableFunction GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data) override;
+	TableFunction GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data,
+	                              const EntryLookupInfo &lookup) override;
 	TableStorageInfo GetStorageInfo(ClientContext &context) override;
+	virtual_column_map_t GetVirtualColumns() const override;
+	vector<column_t> GetRowIdColumns() const override;
 	void BindUpdateConstraints(Binder &binder, LogicalGet &get, LogicalProjection &proj, LogicalUpdate &update,
 	                           ClientContext &context) override;
 
-	//! Re-fetch the table definition from Glue. The Iceberg 'metadata_location' changes with every commit, so a
-	//! scan can not rely on the (cached) table info the entry was created from.
-	GlueTableInfo RefreshTableInfo(ClientContext &context) const;
-
-	//! Bind the iceberg extension's 'iceberg_scan' on an Iceberg metadata file, returning the scan function and the
-	//! columns it produces. Throws if the iceberg extension is not loaded.
-	static TableFunction BindIcebergScan(ClientContext &context, const GlueTableInfo &table_info,
-	                                     unique_ptr<FunctionData> &bind_data, vector<Identifier> &names,
-	                                     vector<LogicalType> &types);
-
-private:
-	//! Throw if the columns Glue reports differ from the columns the scan produces
-	void VerifyScanColumns(const GlueTableInfo &latest_info, const vector<Identifier> &scan_names,
-	                       const vector<LogicalType> &scan_types) const;
-	TableFunction GetIcebergScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data,
-	                                     const GlueTableInfo &latest_info);
+	//! Look up the entry of this table in the child Iceberg catalog, throws if the table is not an Iceberg table
+	TableCatalogEntry &GetIcebergEntry(ClientContext &context, const EntryLookupInfo &lookup);
+	//! Look up a table in the child Iceberg catalog by name
+	static TableCatalogEntry &LookupIcebergEntry(ClientContext &context, GlueCatalog &glue_catalog,
+	                                             const Identifier &schema_name, const EntryLookupInfo &lookup);
 
 public:
 	//! The table definition as returned by Glue when the entry was created
 	GlueTableInfo table_info;
-	//! Whether the columns of this entry were taken from the table format's own schema (Iceberg metadata) rather
-	//! than from the (lossy) Glue column definitions
+	//! Whether the columns (and virtual / row id columns) of this entry were taken from the child Iceberg entry
+	//! rather than from the (lossy) Glue column definitions
 	bool schema_resolved = false;
+	//! Virtual and row id columns of the child Iceberg entry, copied when the schema was resolved
+	virtual_column_map_t virtual_columns;
+	vector<column_t> row_id_columns;
 };
 
 } // namespace duckdb

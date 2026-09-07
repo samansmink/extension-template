@@ -1,0 +1,36 @@
+# name: test/sql/test_glue_create_table.test
+# description: test glue create table
+# group: [sql]
+
+require httpfs
+
+require aws
+
+require glue
+
+statement ok
+CREATE SECRET (
+  TYPE S3,
+  PROVIDER credential_chain,
+  REGION 'eu-central-1',
+  PROFILE 'personal'
+);
+
+statement ok
+attach '984506134640' as my_datalake (
+    TYPE GLUE
+);
+
+statement ok
+DROP SCHEMA IF EXISTS my_datalake.default;
+
+statement ok
+CREATE SCHEMA IF NOT EXISTS my_datalake.default;
+
+statement ok
+CREATE TABLE my_datalake.default.test_table (a int);
+
+query II
+SELECT table_name, column_name FROM information_schema.columns where table_name = 'test_table';
+----
+test_table	a

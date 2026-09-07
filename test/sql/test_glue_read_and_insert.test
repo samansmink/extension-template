@@ -1,0 +1,43 @@
+# name: test/sql/test_glue_read_and_insert.test
+# description: test glue connect
+# group: [sql]
+
+require httpfs
+
+require aws
+
+require iceberg
+
+require glue
+
+statement ok
+CREATE SECRET (
+  TYPE S3,
+  PROVIDER credential_chain,
+  REGION 'eu-central-1',
+  PROFILE 'personal'
+);
+
+statement ok
+attach '984506134640' as my_datalake (
+    TYPE GLUE
+);
+
+statement ok
+SHOW ALL TABLES;
+
+statement ok
+DELETE FROM my_datalake.default.test_table WHERE 1=1;
+
+statement ok
+CREATE TABLE IF NOT EXISTS my_datalake.default.test_table (a int);
+
+statement ok
+INSERT INTO my_datalake.default.test_table values (1), (2), (3);
+
+query I
+SELECT * FROM my_datalake.default.test_table;
+----
+1
+2
+3

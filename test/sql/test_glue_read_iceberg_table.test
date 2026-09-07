@@ -1,0 +1,38 @@
+# name: test/sql/test_glue_read_iceberg_table.test
+# description: test glue read iceberg table
+# group: [sql]
+
+require httpfs
+
+require aws
+
+require iceberg
+
+require glue
+
+statement ok
+CREATE SECRET (
+  TYPE S3,
+  PROVIDER credential_chain,
+  REGION 'eu-central-1',
+  PROFILE 'personal'
+);
+
+statement ok
+attach '984506134640' as my_datalake (
+    TYPE GLUE
+);
+
+query II
+select machineid, metric from my_datalake.simple_s3_database.metrics order by machineid, metric limit 10;
+----
+0	227.07225400864073
+0	229.62308778063957
+0	582.8927437075951
+0	586.3886763217063
+0	655.168451028314
+0	671.6081885081155
+1	274.2257580743481
+1	336.21404590954154
+1	426.791890085795
+1	583.3909811444926
