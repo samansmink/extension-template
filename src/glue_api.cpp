@@ -23,6 +23,7 @@
 #include <aws/glue/model/CreateTableRequest.h>
 #include <aws/glue/model/DeleteDatabaseRequest.h>
 #include <aws/glue/model/DeleteTableRequest.h>
+#include <aws/glue/model/SerDeInfo.h>
 
 #include <sys/stat.h>
 
@@ -463,6 +464,55 @@ void GlueAPI::CreateIcebergTable(ClientContext &context, GlueCatalog &catalog, c
 	request.SetDatabaseName(table.database_name);
 	request.SetTableInput(table_input);
 	request.SetOpenTableFormatInput(open_table_format_input);
+	auto outcome = client->CreateTable(request);
+	if (!outcome.IsSuccess()) {
+		if (IsAlreadyExists(outcome)) {
+			throw CatalogException("Table with name \"%s\" already exists in Glue database \"%s\"", table.name,
+			                       table.database_name);
+		}
+		ThrowGlueError(outcome, StringUtil::Format("CreateTable '%s.%s' (location '%s')", table.database_name,
+		                                           table.name, table.location));
+	}
+}
+
+void GlueAPI::CreateHiveTable(ClientContext &context, GlueCatalog &catalog, const GlueTableInfo &table) {
+	if (table.location.empty()) {
+		throw InvalidInputException("Can not create Hive table '%s.%s' without a location", table.database_name,
+		                            table.name);
+	}
+	auto client = GetClient(context, catalog);
+
+	// Parquet backed external table, described the way Hive / Athena / Spark expect it
+	Aws::Glue::Model::SerDeInfo serde_info;
+	serde_info.SetSerializationLibrary("org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe");
+	serde_info.AddParameters("serialization.format", "1");
+
+	Aws::Glue::Model::StorageDescriptor storage_descriptor;
+	storage_descriptor.SetLocation(table.location);
+	storage_descriptor.SetColumns(ToAwsColumns(table.columns));
+	storage_descriptor.SetInputFormat("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat");
+	storage_descriptor.SetOutputFormat("org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat");
+	storage_descriptor.SetSerdeInfo(serde_info);
+	storage_descriptor.SetCompressed(false);
+	storage_descriptor.SetNumberOfBuckets(-1);
+
+	auto parameters = ToAwsMap(table.parameters);
+	parameters.emplace("EXTERNAL", "TRUE");
+	parameters.emplace("classification", "parquet");
+
+	Aws::Glue::Model::TableInput table_input;
+	table_input.SetName(table.name);
+	table_input.SetTableType("EXTERNAL_TABLE");
+	table_input.SetStorageDescriptor(storage_descriptor);
+	if (!table.partition_keys.empty()) {
+		table_input.SetPartitionKeys(ToAwsColumns(table.partition_keys));
+	}
+	table_input.SetParameters(parameters);
+
+	Aws::Glue::Model::CreateTableRequest request;
+	SetCatalogId(request, catalog);
+	request.SetDatabaseName(table.database_name);
+	request.SetTableInput(table_input);
 	auto outcome = client->CreateTable(request);
 	if (!outcome.IsSuccess()) {
 		if (IsAlreadyExists(outcome)) {

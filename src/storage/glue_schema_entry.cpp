@@ -5,6 +5,10 @@
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "duckdb/planner/parsed_data/bound_create_table_info.hpp"
+#include "duckdb/planner/binder.hpp"
+#include "duckdb/planner/expression_binder/table_function_binder.hpp"
+#include "duckdb/execution/expression_executor.hpp"
+#include "duckdb/parser/parsed_data/create_table_info.hpp"
 
 #include "glue_types.hpp"
 #include "storage/glue_catalog.hpp"
@@ -31,6 +35,62 @@ bool GlueSchemaEntry::CatalogTypeIsSupported(CatalogType type) {
 //===--------------------------------------------------------------------===//
 // Create / Drop / Alter
 //===--------------------------------------------------------------------===//
+namespace {
+
+enum class GlueCreateTableType { ICEBERG, HIVE };
+
+//! Options accepted in CREATE TABLE ... WITH (...) for Glue tables
+struct GlueCreateTableOptions {
+	//! New tables default to the Iceberg format
+	GlueCreateTableType type = GlueCreateTableType::ICEBERG;
+	//! Optional explicit S3 location of the table
+	string location;
+};
+
+GlueCreateTableOptions ParseCreateTableOptions(ClientContext &context, const CreateTableInfo &create_info) {
+	GlueCreateTableOptions result;
+	if (create_info.options.empty()) {
+		return result;
+	}
+	auto binder = Binder::CreateBinder(context);
+	TableFunctionBinder option_binder(*binder, context, "CREATE TABLE options");
+	for (auto &option : create_info.options) {
+		auto &key = option.first;
+		auto expr_copy = option.second->Copy();
+		auto bound_expr = option_binder.Bind(expr_copy);
+		if (bound_expr->HasParameter()) {
+			throw ParameterNotResolvedException();
+		}
+		auto value = ExpressionExecutor::EvaluateScalar(context, *bound_expr, true);
+		if (value.IsNull()) {
+			throw BinderException("NULL is not a valid value for CREATE TABLE option '%s'", key);
+		}
+		auto string_value = value.DefaultCastAs(LogicalType::VARCHAR).GetValue<string>();
+
+		if (StringUtil::CIEquals(key, "type")) {
+			auto type = StringUtil::Upper(string_value);
+			if (type == "ICEBERG") {
+				result.type = GlueCreateTableType::ICEBERG;
+			} else if (type == "HIVE") {
+				result.type = GlueCreateTableType::HIVE;
+			} else {
+				throw BinderException("Unknown Glue table type '%s' for option 'type', expected 'ICEBERG' or 'HIVE'",
+				                      string_value);
+			}
+		} else if (StringUtil::CIEquals(key, "location")) {
+			result.location = string_value;
+			StringUtil::RTrim(result.location, "/");
+		} else {
+			throw BinderException("Unknown CREATE TABLE option '%s' for Glue tables, supported options are 'type' "
+			                      "(ICEBERG or HIVE) and 'location'",
+			                      key);
+		}
+	}
+	return result;
+}
+
+} // namespace
+
 optional_ptr<CatalogEntry> GlueSchemaEntry::CreateTable(CatalogTransaction transaction, BoundCreateTableInfo &info) {
 	auto &context = transaction.GetContext();
 	auto &glue_catalog = catalog.Cast<GlueCatalog>();
@@ -54,21 +114,32 @@ optional_ptr<CatalogEntry> GlueSchemaEntry::CreateTable(CatalogTransaction trans
 	if (!base.constraints.empty()) {
 		throw NotImplementedException("Constraints are not supported when creating tables in a Glue catalog");
 	}
+	if (!base.partition_keys.empty()) {
+		throw NotImplementedException("PARTITIONED BY is not supported yet when creating tables in a Glue catalog");
+	}
+	auto options = ParseCreateTableOptions(context, base);
 
-	// New tables default to the Iceberg format
 	GlueTableInfo table;
 	table.name = table_name;
 	table.database_name = database_info.name;
-	table.location = glue_catalog.GetTableLocation(database_info, table_name);
+	table.location =
+	    options.location.empty() ? glue_catalog.GetTableLocation(database_info, table_name) : options.location;
 	for (auto &column : base.columns.Physical()) {
 		GlueColumn glue_column;
 		glue_column.name = column.Name().GetIdentifierName();
 		glue_column.type = GlueTypes::FromLogicalType(column.Type());
 		table.columns.push_back(std::move(glue_column));
 	}
-	GlueAPI::CreateIcebergTable(context, glue_catalog, table);
+	switch (options.type) {
+	case GlueCreateTableType::ICEBERG:
+		GlueAPI::CreateIcebergTable(context, glue_catalog, table);
+		break;
+	case GlueCreateTableType::HIVE:
+		GlueAPI::CreateHiveTable(context, glue_catalog, table);
+		break;
+	}
 
-	// re-fetch so the entry carries the metadata location and parameters Glue assigned
+	// re-fetch so the entry carries the parameters (e.g. the Iceberg metadata location) Glue assigned
 	GlueTableInfo created;
 	if (!GlueAPI::GetTable(context, glue_catalog, database_info.name, table_name, created)) {
 		throw CatalogException("Glue table \"%s.%s\" was created but could not be fetched afterwards",

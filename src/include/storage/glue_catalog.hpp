@@ -47,6 +47,9 @@ public:
 		return false;
 	}
 	optional<Identifier> GetDefaultSchema() const override;
+	//! Allow CREATE TABLE ... WITH (type = 'ICEBERG' | 'HIVE', location = '...'); the options themselves are
+	//! validated in GlueSchemaEntry::CreateTable
+	ErrorData SupportsCreateTable(BoundCreateTableInfo &info) override;
 
 	optional_ptr<CatalogEntry> CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) override;
 	void DropSchema(ClientContext &context, DropInfo &info) override;

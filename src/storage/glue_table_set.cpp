@@ -1,5 +1,7 @@
 #include "storage/glue_table_set.hpp"
 
+#include "duckdb/common/error_data.hpp"
+#include "duckdb/logging/logger.hpp"
 #include "duckdb/parser/column_definition.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
 #include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
@@ -36,7 +38,19 @@ void GlueTableSet::LoadEntries(ClientContext &context) {
 			// already loaded through a direct lookup
 			continue;
 		}
-		entries.emplace(table.name, CreateTableEntry(table));
+		unique_ptr<GlueTable> entry;
+		try {
+			entry = CreateTableEntry(table);
+		} catch (std::exception &ex) {
+			// A table whose Glue definition we can not turn into a DuckDB table (e.g. an unsupported column type)
+			// must not break listing the other tables: leave it out and log why. Looking the table up by name
+			// still reports the error to the user.
+			ErrorData error(ex);
+			DUCKDB_LOG_ERROR(context, "Glue table '%s.%s' is not listed: %s", schema.database_info.name, table.name,
+			                 error.RawMessage());
+			continue;
+		}
+		entries.emplace(table.name, std::move(entry));
 	}
 	is_loaded = true;
 }

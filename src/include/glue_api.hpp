@@ -87,6 +87,9 @@ public:
 	//! Create an Iceberg table from the columns and location in 'table'. Glue writes the initial Iceberg metadata
 	//! file to the table location itself.
 	static void CreateIcebergTable(ClientContext &context, GlueCatalog &catalog, const GlueTableInfo &table);
+	//! Create a standard (Hive style) Glue table storing parquet files at 'table.location', with the columns and
+	//! partition keys in 'table'
+	static void CreateHiveTable(ClientContext &context, GlueCatalog &catalog, const GlueTableInfo &table);
 	//! Delete a table (the data files are left in place), throws a CatalogException if it does not exist
 	static void DeleteTable(ClientContext &context, GlueCatalog &catalog, const string &database_name,
 	                        const string &table_name);

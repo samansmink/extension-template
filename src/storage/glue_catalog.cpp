@@ -8,6 +8,8 @@
 #include "duckdb/main/database.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
+#include "duckdb/parser/parsed_data/create_table_info.hpp"
+#include "duckdb/planner/parsed_data/bound_create_table_info.hpp"
 #include "duckdb/storage/database_size.hpp"
 
 #include "duckdb/main/database_manager.hpp"
@@ -66,6 +68,17 @@ unique_ptr<SecretEntry> GlueCatalog::GetStorageSecret(ClientContext &context, co
 }
 
 void GlueCatalog::Initialize(bool load_builtin) {
+}
+
+ErrorData GlueCatalog::SupportsCreateTable(BoundCreateTableInfo &info) {
+	auto &base = info.Base().Cast<CreateTableInfo>();
+	if (!base.partition_keys.empty()) {
+		return ErrorData(ExceptionType::CATALOG, "PARTITIONED BY is not supported yet for tables in a Glue catalog");
+	}
+	if (!base.sort_keys.empty()) {
+		return ErrorData(ExceptionType::CATALOG, "SORTED BY is not supported for tables in a Glue catalog");
+	}
+	return ErrorData();
 }
 
 optional<Identifier> GlueCatalog::GetDefaultSchema() const {
@@ -170,7 +183,8 @@ void GlueCatalog::SetIcebergDatabase(shared_ptr<AttachedDatabase> database) {
 
 Catalog &GlueCatalog::GetIcebergCatalog() {
 	if (!iceberg_database) {
-		throw InternalException("Glue catalog '%s' has no child Iceberg catalog attached", GetName().GetIdentifierName());
+		throw InternalException("Glue catalog '%s' has no child Iceberg catalog attached",
+		                        GetName().GetIdentifierName());
 	}
 	return iceberg_database->GetCatalog();
 }

@@ -183,6 +183,9 @@ private:
 		if (name == "uuid") {
 			return LogicalType::UUID;
 		}
+		if (name == "variant") {
+			return LogicalType::VARIANT();
+		}
 		throw NotImplementedException("Glue type '%s' (in '%s') is not supported", name, input);
 	}
 
@@ -243,6 +246,8 @@ string GlueTypes::FromLogicalType(const LogicalType &type) {
 		return "timestamptz";
 	case LogicalTypeId::UUID:
 		return "uuid";
+	case LogicalTypeId::VARIANT:
+		return "variant";
 	case LogicalTypeId::LIST:
 		return "array<" + FromLogicalType(ListType::GetChildType(type)) + ">";
 	case LogicalTypeId::MAP:
