@@ -1,4 +1,4 @@
-# name: test/sql/hive/test_create_hive_table.test
+# name: test/sql/delta/test_read_delta.test
 # description: test creating a hive table
 # group: [sql]
 
@@ -7,6 +7,8 @@ require httpfs
 require aws
 
 require iceberg
+
+require delta
 
 require glue
 
@@ -23,16 +25,8 @@ attach '984506134640' as my_datalake (
     TYPE glue
 );
 
-query I
-SELECT * FROM my_datalake.default.hive_table_2;
-----
-1
-2
-3
-4
-
 query II
-SELECT * FROM my_datalake.default.hive_partitioned_table order by all;
+SELECT * FROM my_datalake.default.delta_partitioned_table ORDER BY ALL;
 ----
 1	1
 2	2

@@ -22,3 +22,9 @@ statement ok
 attach '984506134640' as my_datalake (
     TYPE GLUE
 );
+
+statement ok
+SHOW ALL TABLES
+
+statement ok
+select * from information_schema.columns;

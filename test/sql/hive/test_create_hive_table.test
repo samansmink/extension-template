@@ -1,0 +1,48 @@
+# name: test/sql/test_create_hive_table.test
+# description: test creating a hive table
+# group: [sql]
+
+require httpfs
+
+require aws
+
+require iceberg
+
+require glue
+
+statement ok
+CREATE SECRET (
+  TYPE S3,
+  PROVIDER credential_chain,
+  REGION 'eu-central-1',
+  PROFILE 'personal'
+);
+
+statement ok
+attach '984506134640' as my_datalake (
+    TYPE glue
+);
+
+statement ok
+SHOW ALL TABLES;
+
+
+statement ok
+DROP TABLE IF EXISTS my_datalake.default.hive_table;
+
+statement ok
+CREATE TABLE IF NOT EXISTS my_datalake.default.hive_table
+(int_col integer, variant_col VARIANT, timestamp_col TIMESTAMP) WITH (type = 'HIVE');
+
+query I
+select distinct table_name from information_schema.columns where table_name = 'hive_table';
+----
+hive_table
+
+mode skip
+
+# We are not inserting into hive tables yet.
+statement ok
+insert into my_datalake.default.hive_table values (1, 5::VARIANT, now());
+
+
