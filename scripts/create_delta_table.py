@@ -139,13 +139,37 @@ def build_spark(session, region):
     ).getOrCreate()
 
 
+# Hive type strings (as registered in Glue) to the Spark types written to the Delta log, so that both agree.
+# Without an explicit schema Spark infers LongType for Python ints, and Glue would say 'int' while the log
+# says 'bigint'.
+HIVE_TO_SPARK_TYPE = {
+    "int": "IntegerType",
+    "bigint": "LongType",
+    "string": "StringType",
+    "double": "DoubleType",
+    "boolean": "BooleanType",
+    "date": "DateType",
+    "timestamp": "TimestampType",
+}
+
+
+def table_schema():
+    from pyspark.sql import types as T
+
+    fields = []
+    for name, hive_type in DATA_COLUMNS + PARTITION_COLUMNS:
+        if hive_type not in HIVE_TO_SPARK_TYPE:
+            sys.exit(f"no Spark type mapping for Hive type '{hive_type}' (column {name})")
+        fields.append(
+            T.StructField(name, getattr(T, HIVE_TO_SPARK_TYPE[hive_type])(), nullable=True)
+        )
+    return T.StructType(fields)
+
+
 def write_delta_table(spark, location):
     # Hadoop speaks s3a://, Glue and DuckDB speak s3://
     s3a_location = "s3a://" + location[len("s3://") :]
-    columns = [name for name, _ in DATA_COLUMNS] + [
-        name for name, _ in PARTITION_COLUMNS
-    ]
-    df = spark.createDataFrame(ROWS, columns)
+    df = spark.createDataFrame(ROWS, schema=table_schema())
     (
         df.write.format("delta")
         .partitionBy(*[name for name, _ in PARTITION_COLUMNS])
