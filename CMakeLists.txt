@@ -28,6 +28,7 @@ set(EXTENSION_SOURCES
     src/glue_attach.cpp
     src/glue_api.cpp
     src/glue_types.cpp
+    src/glue_http_client.cpp
     src/storage/glue_catalog.cpp
     src/storage/glue_schema_set.cpp
     src/storage/glue_schema_entry.cpp

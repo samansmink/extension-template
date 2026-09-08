@@ -21,6 +21,19 @@ Attach options:
 | `DEFAULT_LOCATION` | S3 prefix for new databases and for tables in databases without a LocationUri (default `s3://simple-s3-glue-database/glue-database-root`) |
 | `DEFAULT_SCHEMA`   | Glue database to use as the default schema                                   |
 
+## HTTP transport and logging
+
+The AWS SDK's Glue calls are routed through DuckDB's HTTP layer (httpfs), so they honor DuckDB's proxy and
+certificate settings and appear in the HTTP log:
+
+```sql
+CALL enable_logging('HTTP', storage='memory');
+-- ... run queries ...
+SELECT request.type, request.url, request.headers['x-amz-target'], response.status FROM duckdb_logs_parsed('HTTP');
+```
+
+`SET glue_network_calls_via_duckdb = false` switches back to the SDK's own HTTP client.
+
 ## Writing
 
 INSERT, DELETE, UPDATE and MERGE INTO on Iceberg tables are executed by the iceberg extension: when attached, the Glue

@@ -8,6 +8,7 @@
 #include "duckdb/main/secret/secret.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
 
+#include "glue_http_client.hpp"
 #include "storage/glue_catalog.hpp"
 
 #include <aws/core/Aws.h>
@@ -109,15 +110,6 @@ string GlueTableInfo::GetMetadataLocation() const {
 //===--------------------------------------------------------------------===//
 namespace {
 
-void InitAWSAPI() {
-	static bool loaded = false;
-	if (!loaded) {
-		Aws::SDKOptions options;
-		Aws::InitAPI(options); // Should only be called once.
-		loaded = true;
-	}
-}
-
 //! Grab the first path that exists, from a list of well-known CA bundle locations
 string SelectCURLCertPath() {
 	static const char *cert_file_locations[] = {// Arch, Debian-based, Gentoo
@@ -214,8 +206,6 @@ void SetCatalogId(REQUEST &request, const GlueCatalog &catalog) {
 } // namespace
 
 std::shared_ptr<Aws::Glue::GlueClient> GlueAPI::GetClient(ClientContext &context, GlueCatalog &catalog) {
-	InitAWSAPI();
-
 	// Take the credentials from the DuckDB secret. The secret is looked up on every call so a refreshed
 	// (credential_chain / sts) secret is picked up automatically.
 	auto secret_entry = GlueCatalog::GetStorageSecret(context, catalog.options.secret_name);
@@ -233,7 +223,9 @@ std::shared_ptr<Aws::Glue::GlueClient> GlueAPI::GetClient(ClientContext &context
 	}
 
 	auto &region = catalog.options.region;
-	auto cache_key = key_id + "\x1f" + session_token + "\x1f" + region;
+	// The HTTP transport is chosen when the SDK client is built, so a changed setting needs a new client
+	auto via_duckdb = GlueNetworkCallsViaDuckDB(DatabaseInstance::GetDatabase(context));
+	auto cache_key = key_id + "\x1f" + session_token + "\x1f" + region + "\x1f" + (via_duckdb ? "duckdb" : "sdk");
 
 	lock_guard<mutex> guard(catalog.client_lock);
 	if (catalog.glue_client && catalog.client_cache_key == cache_key) {
@@ -260,6 +252,7 @@ std::shared_ptr<Aws::Glue::GlueClient> GlueAPI::GetClient(ClientContext &context
 // Read API
 //===--------------------------------------------------------------------===//
 void GlueAPI::VerifyConnection(ClientContext &context, GlueCatalog &catalog) {
+	GlueHttpClientContextScope http_scope(context);
 	auto client = GetClient(context, catalog);
 	Aws::Glue::Model::GetDatabasesRequest request;
 	SetCatalogId(request, catalog);
@@ -272,6 +265,7 @@ void GlueAPI::VerifyConnection(ClientContext &context, GlueCatalog &catalog) {
 }
 
 vector<GlueDatabaseInfo> GlueAPI::GetDatabases(ClientContext &context, GlueCatalog &catalog) {
+	GlueHttpClientContextScope http_scope(context);
 	auto client = GetClient(context, catalog);
 	vector<GlueDatabaseInfo> result;
 	Aws::String next_token;
@@ -296,6 +290,7 @@ vector<GlueDatabaseInfo> GlueAPI::GetDatabases(ClientContext &context, GlueCatal
 
 bool GlueAPI::GetDatabase(ClientContext &context, GlueCatalog &catalog, const string &database_name,
                           GlueDatabaseInfo &result) {
+	GlueHttpClientContextScope http_scope(context);
 	auto client = GetClient(context, catalog);
 	Aws::Glue::Model::GetDatabaseRequest request;
 	SetCatalogId(request, catalog);
@@ -312,6 +307,7 @@ bool GlueAPI::GetDatabase(ClientContext &context, GlueCatalog &catalog, const st
 }
 
 vector<GlueTableInfo> GlueAPI::GetTables(ClientContext &context, GlueCatalog &catalog, const string &database_name) {
+	GlueHttpClientContextScope http_scope(context);
 	auto client = GetClient(context, catalog);
 	vector<GlueTableInfo> result;
 	Aws::String next_token;
@@ -337,6 +333,7 @@ vector<GlueTableInfo> GlueAPI::GetTables(ClientContext &context, GlueCatalog &ca
 
 bool GlueAPI::GetTable(ClientContext &context, GlueCatalog &catalog, const string &database_name,
                        const string &table_name, GlueTableInfo &result) {
+	GlueHttpClientContextScope http_scope(context);
 	auto client = GetClient(context, catalog);
 	Aws::Glue::Model::GetTableRequest request;
 	SetCatalogId(request, catalog);
@@ -392,6 +389,7 @@ Aws::Vector<Aws::Glue::Model::Column> ToAwsColumns(const vector<GlueColumn> &inp
 } // namespace
 
 void GlueAPI::CreateDatabase(ClientContext &context, GlueCatalog &catalog, const GlueDatabaseInfo &database) {
+	GlueHttpClientContextScope http_scope(context);
 	auto client = GetClient(context, catalog);
 	Aws::Glue::Model::DatabaseInput input;
 	input.SetName(database.name);
@@ -417,6 +415,7 @@ void GlueAPI::CreateDatabase(ClientContext &context, GlueCatalog &catalog, const
 }
 
 void GlueAPI::DeleteDatabase(ClientContext &context, GlueCatalog &catalog, const string &database_name) {
+	GlueHttpClientContextScope http_scope(context);
 	auto client = GetClient(context, catalog);
 	Aws::Glue::Model::DeleteDatabaseRequest request;
 	SetCatalogId(request, catalog);
@@ -435,6 +434,7 @@ void GlueAPI::CreateIcebergTable(ClientContext &context, GlueCatalog &catalog, c
 		throw InvalidInputException("Can not create Iceberg table '%s.%s' without a location", table.database_name,
 		                            table.name);
 	}
+	GlueHttpClientContextScope http_scope(context);
 	auto client = GetClient(context, catalog);
 
 	Aws::Glue::Model::StorageDescriptor storage_descriptor;
@@ -480,6 +480,7 @@ void GlueAPI::CreateHiveTable(ClientContext &context, GlueCatalog &catalog, cons
 		throw InvalidInputException("Can not create Hive table '%s.%s' without a location", table.database_name,
 		                            table.name);
 	}
+	GlueHttpClientContextScope http_scope(context);
 	auto client = GetClient(context, catalog);
 
 	// Parquet backed external table, described the way Hive / Athena / Spark expect it
@@ -526,6 +527,7 @@ void GlueAPI::CreateHiveTable(ClientContext &context, GlueCatalog &catalog, cons
 
 void GlueAPI::DeleteTable(ClientContext &context, GlueCatalog &catalog, const string &database_name,
                           const string &table_name) {
+	GlueHttpClientContextScope http_scope(context);
 	auto client = GetClient(context, catalog);
 	Aws::Glue::Model::DeleteTableRequest request;
 	SetCatalogId(request, catalog);

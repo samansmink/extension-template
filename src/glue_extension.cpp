@@ -8,6 +8,9 @@
 #include "duckdb/storage/storage_extension.hpp"
 
 #include "glue_attach.hpp"
+#include "glue_http_client.hpp"
+
+#include <aws/core/Aws.h>
 #include "storage/glue_catalog.hpp"
 #include "storage/glue_transaction_manager.hpp"
 
@@ -27,9 +30,28 @@ public:
 	}
 };
 
+static void InitAWSAPI() {
+	static bool loaded = false;
+	if (!loaded) {
+		Aws::SDKOptions options;
+		Aws::InitAPI(options); // Should only be called once.
+		loaded = true;
+	}
+}
+
 static void LoadInternal(ExtensionLoader &loader) {
 	auto &instance = loader.GetDatabaseInstance();
 	auto &config = DBConfig::GetConfig(instance);
+
+	config.AddExtensionOption("glue_network_calls_via_duckdb",
+	                          "Route the Glue API calls of the AWS SDK through DuckDB's HTTP layer (httpfs) instead "
+	                          "of the AWS SDK's own HTTP client, so they use DuckDB's proxy / certificate settings "
+	                          "and show up in the HTTP log. Default true.",
+	                          LogicalType::BOOLEAN, Value::BOOLEAN(true));
+
+	// The HTTP client factory has to be in place before the first AWS client is constructed
+	InitAWSAPI();
+	RegisterGlueHttpClientFactory(instance);
 	// ATTACH '<catalog id>' (TYPE GLUE)
 	StorageExtension::Register(config, "glue", make_shared_ptr<GlueStorageExtension>());
 }
