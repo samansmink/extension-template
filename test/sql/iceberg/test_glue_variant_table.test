@@ -26,6 +26,8 @@ attach '984506134640' as my_datalake (
 statement ok
 SHOW ALL TABLES;
 
+# variant tables currently fail because metadata cannot be properly parsed either by us or by athena?
+# Something is going wrong here that needs to be fixed
 mode skip
 
 statement ok
