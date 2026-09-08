@@ -1,0 +1,43 @@
+# name: test/sql/hive/test_create_hive_table.test
+# description: test creating a hive table
+# group: [sql]
+
+require httpfs
+
+require aws
+
+require iceberg
+
+require glue
+
+statement ok
+CREATE SECRET (
+  TYPE S3,
+  PROVIDER credential_chain,
+  REGION 'eu-central-1',
+  PROFILE 'personal'
+);
+
+statement ok
+attach '984506134640' as my_datalake (
+    TYPE glue
+);
+
+statement ok
+SHOW ALL TABLES;
+
+query I
+SELECT * FROM my_datalake.default.hive_table_2;
+----
+1
+2
+3
+4
+
+query II
+SELECT * FROM my_datalake.default.hive_partitioned_table order by all;
+----
+1	1
+2	2
+3	1
+4	2

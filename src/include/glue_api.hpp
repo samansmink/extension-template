@@ -48,6 +48,9 @@ struct GlueTableInfo {
 	string location;
 	string input_format;
 	string output_format;
+	//! StorageDescriptor.SerdeInfo: decides how the data files are read
+	string serde_library;
+	unordered_map<string, string> serde_parameters;
 	vector<GlueColumn> columns;
 	vector<GlueColumn> partition_keys;
 	unordered_map<string, string> parameters;

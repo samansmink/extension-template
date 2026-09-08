@@ -9,6 +9,7 @@
 
 #include "glue_attach.hpp"
 #include "glue_http_client.hpp"
+#include "duckdb/main/extension_helper.hpp"
 
 #include <aws/core/Aws.h>
 #include "storage/glue_catalog.hpp"
@@ -52,6 +53,12 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// The HTTP client factory has to be in place before the first AWS client is constructed
 	InitAWSAPI();
 	RegisterGlueHttpClientFactory(instance);
+
+	// Hive tables are read with read_parquet
+	ExtensionHelper::AutoLoadExtension(instance, "parquet");
+	if (!instance.ExtensionIsLoaded("parquet")) {
+		throw MissingExtensionException("The glue extension requires the parquet extension to be loaded!");
+	}
 	// ATTACH '<catalog id>' (TYPE GLUE)
 	StorageExtension::Register(config, "glue", make_shared_ptr<GlueStorageExtension>());
 }

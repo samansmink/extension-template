@@ -28,6 +28,17 @@ public:
 
 	//! Look up the entry of this table in the child Iceberg catalog, throws if the table is not an Iceberg table
 	TableCatalogEntry &GetIcebergEntry(ClientContext &context, const EntryLookupInfo &lookup);
+
+private:
+	//! Scan a Hive table with read_parquet over the table location, partition values from the directory names
+	TableFunction GetHiveScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data,
+	                                  const GlueTableInfo &latest_info);
+	//! Throw if the columns the scan produces differ from the columns of this entry (which the query was planned
+	//! with)
+	void VerifyScanColumns(const GlueTableInfo &latest_info, const vector<Identifier> &scan_names,
+	                       const vector<LogicalType> &scan_types) const;
+
+public:
 	//! Look up a table in the child Iceberg catalog by name
 	static TableCatalogEntry &LookupIcebergEntry(ClientContext &context, GlueCatalog &glue_catalog,
 	                                             const Identifier &schema_name, const EntryLookupInfo &lookup);
