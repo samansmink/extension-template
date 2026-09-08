@@ -98,9 +98,61 @@ TableFunction GlueTable::GetScanFunction(ClientContext &context, unique_ptr<Func
 		return GetIcebergEntry(context, lookup).GetScanFunction(context, bind_data, lookup);
 	case GlueTableFormat::HIVE:
 		return GetHiveScanFunction(context, bind_data, latest_info);
+	case GlueTableFormat::DELTA:
+		return GetDeltaScanFunction(context, bind_data, latest_info);
 	default:
 		throw NotImplementedException("Scan from table with type %s", latest_info.GetFormatName());
 	}
+}
+
+//===--------------------------------------------------------------------===//
+// Delta scan
+//===--------------------------------------------------------------------===//
+TableFunction GlueTable::BindDeltaScan(ClientContext &context, const GlueTableInfo &table_info,
+                                       unique_ptr<FunctionData> &bind_data, vector<Identifier> &names,
+                                       vector<LogicalType> &types) {
+	if (table_info.location.empty()) {
+		throw InvalidInputException("Delta table '%s.%s' has no location in Glue", table_info.database_name,
+		                            table_info.name);
+	}
+	if (StringUtil::Contains(StringUtil::Lower(table_info.input_format), "symlinktextinputformat")) {
+		throw NotImplementedException("Delta table '%s.%s' is registered through a symlink manifest, which is not "
+		                              "supported; register the table root with table_type=DELTA instead",
+		                              table_info.database_name, table_info.name);
+	}
+
+	// The delta extension provides the scan: delta_scan('<table root>')
+	auto &db = DatabaseInstance::GetDatabase(context);
+	auto &system_catalog = Catalog::GetSystemCatalog(db);
+	auto data = CatalogTransaction::GetSystemTransaction(db);
+	auto &catalog_schema = system_catalog.GetSchema(data, Identifier::DefaultSchema());
+	auto catalog_entry = catalog_schema.GetEntry(data, CatalogType::TABLE_FUNCTION_ENTRY, "delta_scan");
+	if (!catalog_entry) {
+		throw MissingExtensionException(
+		    "Reading Delta table '%s.%s' requires the delta extension, LOAD it and try again",
+		    table_info.database_name, table_info.name);
+	}
+	auto &function_set = catalog_entry->Cast<TableFunctionCatalogEntry>();
+	auto scan_function = *function_set.functions.GetFunctionByArguments(context, {LogicalType::VARCHAR});
+
+	auto location = table_info.location;
+	StringUtil::RTrim(location, "/");
+	named_parameter_map_t param_map;
+	TableFunctionRef empty_ref;
+	vector<Value> inputs = {Value(location)};
+	TableFunctionBindInput bind_input(inputs, param_map, types, names, nullptr, nullptr, scan_function, empty_ref);
+	bind_data = scan_function.bind(context, bind_input, types, names);
+	return scan_function;
+}
+
+TableFunction GlueTable::GetDeltaScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data,
+                                              const GlueTableInfo &latest_info) {
+	vector<LogicalType> return_types;
+	vector<Identifier> names;
+	auto scan_function = BindDeltaScan(context, latest_info, bind_data, names, return_types);
+	// The entry's columns were resolved from the Delta log (see GlueTableSet::ResolveEntry); they must still match
+	VerifyScanColumns(latest_info, names, return_types);
+	return scan_function;
 }
 
 //===--------------------------------------------------------------------===//

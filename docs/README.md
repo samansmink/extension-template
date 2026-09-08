@@ -1,7 +1,8 @@
 # DuckDB Glue extension
 
 Prototype extension that exposes an AWS Glue Data Catalog as a DuckDB catalog. It talks to Glue through the AWS SDK
-Glue client, so it can list every table type Glue registers (Iceberg, Delta, Hive, ...). Iceberg tables are scanned through the iceberg extension; Hive tables stored as parquet are scanned with
+Glue client, so it can list every table type Glue registers (Iceberg, Delta, Hive, ...). Iceberg tables are scanned through the iceberg extension, Delta tables through the delta extension's
+`delta_scan` (with the columns taken from the Delta log), and Hive tables stored as parquet are scanned with
 `read_parquet` over the table location, with partition values from the directory names and partition types from
 Glue's partition keys. The iceberg and
 avro extensions are linked into the build through `extension_config.cmake`, pinned to the commits the duckdb

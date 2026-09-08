@@ -30,6 +30,9 @@ public:
 	TableCatalogEntry &GetIcebergEntry(ClientContext &context, const EntryLookupInfo &lookup);
 
 private:
+	//! Scan a Delta table with the delta extension's delta_scan over the table location
+	TableFunction GetDeltaScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data,
+	                                   const GlueTableInfo &latest_info);
 	//! Scan a Hive table with read_parquet over the table location, partition values from the directory names
 	TableFunction GetHiveScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data,
 	                                  const GlueTableInfo &latest_info);
@@ -42,6 +45,10 @@ public:
 	//! Look up a table in the child Iceberg catalog by name
 	static TableCatalogEntry &LookupIcebergEntry(ClientContext &context, GlueCatalog &glue_catalog,
 	                                             const Identifier &schema_name, const EntryLookupInfo &lookup);
+	//! Bind the delta extension's delta_scan on the table location, returning the columns of the Delta log
+	static TableFunction BindDeltaScan(ClientContext &context, const GlueTableInfo &table_info,
+	                                   unique_ptr<FunctionData> &bind_data, vector<Identifier> &names,
+	                                   vector<LogicalType> &types);
 
 public:
 	//! The table definition as returned by Glue when the entry was created

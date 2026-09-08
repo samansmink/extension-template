@@ -16,6 +16,15 @@ if (NOT EMSCRIPTEN AND NOT MINGW)
         SUBMODULES "third_party/avro-c"
         APPLY_PATCHES
     )
+  # Delta tables registered in Glue are scanned through the delta extension (delta_scan). Pinned, like avro, to the
+  # commit the duckdb submodule uses in .github/config/extensions/delta.cmake. Needs a Rust toolchain (cargo) to
+  # build delta-kernel-rs.
+  duckdb_extension_load(delta
+        GIT_URL https://github.com/duckdb/duckdb-delta
+        GIT_TAG 10a49159f8e65674474b3bf34b92440f2399850d
+        SUBMODULES extension-ci-tools
+        APPLY_PATCHES
+  )
   # Built from the local checkout in ./duckdb-iceberg (at bf975d6f with duckdb's merge-into patch applied by hand,
   # APPLY_PATCHES only works for GIT_URL loads). Switch back to the GIT_URL/GIT_TAG form for a reproducible build.
   duckdb_extension_load(iceberg
