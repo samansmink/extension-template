@@ -98,8 +98,9 @@ public:
 	std::shared_ptr<Aws::Glue::GlueClient> glue_client;
 
 private:
-	//! The child Iceberg catalog to use for DML on 'table', throws if the table is not an Iceberg table
-	Catalog &GetIcebergCatalogForDML(ClientContext &context, TableCatalogEntry &table);
+	//! The catalog that plans DML on 'table': the child Iceberg catalog for Iceberg tables, the table's own child
+	//! Delta catalog for Delta tables. Throws for other table types.
+	Catalog &GetCatalogForDML(ClientContext &context, TableCatalogEntry &table);
 
 private:
 	GlueSchemaSet schemas;

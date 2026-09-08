@@ -126,8 +126,8 @@ public:
 			// that connection's HTTP log. SDK calls made outside a GlueHttpClientContextScope (e.g. credential
 			// refreshes) fall back to the database level parameters.
 			auto context = GlueHttpClientContextScope::Current();
-			auto params = context ? http_util.InitializeParameters(*context, url)
-			                      : http_util.InitializeParameters(db, url);
+			auto params =
+			    context ? http_util.InitializeParameters(*context, url) : http_util.InitializeParameters(db, url);
 
 			HTTPHeaders headers(db);
 			for (const auto &header : request->GetHeaders()) {
@@ -173,8 +173,8 @@ public:
 			case RequestType::PUT_REQUEST: {
 				body_buffer = ReadRequestBody(request);
 				string content_type = request->GetContentType().c_str();
-				PutRequestInfo info(url, headers, *params, const_data_ptr_cast(body_buffer.c_str()),
-				                    body_buffer.size(), content_type);
+				PutRequestInfo info(url, headers, *params, const_data_ptr_cast(body_buffer.c_str()), body_buffer.size(),
+				                    content_type);
 				info.try_request = true;
 				response = http_util.Request(info, client);
 				break;
@@ -199,8 +199,7 @@ public:
 				aws_response->SetResponseCode(Aws::Http::HttpResponseCode::REQUEST_NOT_MADE);
 				return aws_response;
 			}
-			aws_response->SetResponseCode(
-			    static_cast<Aws::Http::HttpResponseCode>(static_cast<int>(response->status)));
+			aws_response->SetResponseCode(static_cast<Aws::Http::HttpResponseCode>(static_cast<int>(response->status)));
 			for (const auto &header : response->headers) {
 				aws_response->AddHeader(header.first.c_str(), header.second.c_str());
 			}
@@ -241,13 +240,15 @@ public:
 		return Aws::MakeShared<GlueDuckDBHttpClient>("GlueDuckDBHttp", db);
 	}
 
-	std::shared_ptr<Aws::Http::HttpRequest> CreateHttpRequest(const Aws::String &uri, Aws::Http::HttpMethod method,
-	                                                          const Aws::IOStreamFactory &stream_factory) const override {
+	std::shared_ptr<Aws::Http::HttpRequest>
+	CreateHttpRequest(const Aws::String &uri, Aws::Http::HttpMethod method,
+	                  const Aws::IOStreamFactory &stream_factory) const override {
 		return CreateHttpRequest(Aws::Http::URI(uri), method, stream_factory);
 	}
 
-	std::shared_ptr<Aws::Http::HttpRequest> CreateHttpRequest(const Aws::Http::URI &uri, Aws::Http::HttpMethod method,
-	                                                          const Aws::IOStreamFactory &stream_factory) const override {
+	std::shared_ptr<Aws::Http::HttpRequest>
+	CreateHttpRequest(const Aws::Http::URI &uri, Aws::Http::HttpMethod method,
+	                  const Aws::IOStreamFactory &stream_factory) const override {
 		auto request = Aws::MakeShared<Aws::Http::Standard::StandardHttpRequest>("GlueDuckDBHttp", uri, method);
 		request->SetResponseStreamFactory(stream_factory);
 		return request;

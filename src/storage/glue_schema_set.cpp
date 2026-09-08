@@ -73,6 +73,13 @@ void GlueSchemaSet::RemoveEntry(const string &name) {
 	entries.erase(name);
 }
 
+void GlueSchemaSet::DetachChildren(ClientContext &context) {
+	lock_guard<mutex> guard(entry_lock);
+	for (auto &entry : entries) {
+		entry.second->tables.DetachChildren(context);
+	}
+}
+
 void GlueSchemaSet::ClearEntries() {
 	lock_guard<mutex> guard(entry_lock);
 	entries.clear();

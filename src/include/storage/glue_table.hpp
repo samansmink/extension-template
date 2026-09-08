@@ -3,6 +3,8 @@
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
 
+#include "duckdb/common/mutex.hpp"
+
 #include "glue_api.hpp"
 
 namespace duckdb {
@@ -28,6 +30,14 @@ public:
 
 	//! Look up the entry of this table in the child Iceberg catalog, throws if the table is not an Iceberg table
 	TableCatalogEntry &GetIcebergEntry(ClientContext &context, const EntryLookupInfo &lookup);
+	//! DML on a Delta table is executed by the delta extension: the table root is attached (once, hidden) as a
+	//! single-table Delta catalog in child catalog mode and DML planning is forwarded to it. Throws if the table is
+	//! not a Delta table.
+	Catalog &GetDeltaCatalog(ClientContext &context);
+	//! Detach the child Delta catalog, if any
+	void DetachChildren(ClientContext &context);
+	//! Hand the child Delta catalog over to a replacement entry (see GlueTableSet::ResolveEntry)
+	void MoveChildrenTo(GlueTable &other);
 
 private:
 	//! Scan a Delta table with the delta extension's delta_scan over the table location
@@ -59,6 +69,11 @@ public:
 	//! Virtual and row id columns of the child Iceberg entry, copied when the schema was resolved
 	virtual_column_map_t virtual_columns;
 	vector<column_t> row_id_columns;
+
+private:
+	mutex delta_lock;
+	//! The hidden child Delta catalog of this table (see GetDeltaCatalog)
+	shared_ptr<AttachedDatabase> delta_database;
 };
 
 } // namespace duckdb

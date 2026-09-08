@@ -36,6 +36,11 @@ SELECT response.Parameters.metadata_location FROM glue_get_table_response('my_da
 It returns one row with the classification, the Glue table type, location, SerDe, columns, partition keys and
 parameters as columns, plus the complete Glue `Table` object as a VARIANT in `response`.
 
+Delta tables: `INSERT` is executed by the delta extension. The table root is attached lazily as a hidden
+single-table Delta catalog (`__glue_delta_<uuid>`, child catalog mode) and DML planning is forwarded to it; the
+delta extension commits the Delta log at the end of the statement, Glue is not involved. Limitation of the delta
+extension: an INSERT whose rows span several partitions fails, insert one partition per statement.
+
 ## HTTP transport and logging
 
 The AWS SDK's Glue calls are routed through DuckDB's HTTP layer (httpfs), so they honor DuckDB's proxy and

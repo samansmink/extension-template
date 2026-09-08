@@ -48,31 +48,36 @@ unique_ptr<FunctionData> GlueGetTableResponseBind(ClientContext &context, TableF
 		                       qualified.Catalog().GetIdentifierName());
 	}
 
-	auto column_type = LogicalType::LIST(LogicalType::STRUCT({{"name", LogicalType::VARCHAR},
-	                                                          {"type", LogicalType::VARCHAR},
-	                                                          {"comment", LogicalType::VARCHAR}}));
+	auto column_type = LogicalType::LIST(LogicalType::STRUCT(
+	    {{"name", LogicalType::VARCHAR}, {"type", LogicalType::VARCHAR}, {"comment", LogicalType::VARCHAR}}));
 	auto map_type = LogicalType::MAP(LogicalType::VARCHAR, LogicalType::VARCHAR);
-	names = {"database_name", "table_name",     "table_type", "glue_table_type", "location",
-	         "serde_library", "columns",        "partition_keys", "parameters",   "serde_parameters",
-	         "response"};
-	return_types = {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR,
-	                LogicalType::VARCHAR, LogicalType::VARCHAR, column_type,          column_type,
-	                map_type,             map_type,             LogicalType::VARIANT()};
+	names = {"database_name", "table_name",     "table_type", "glue_table_type",  "location", "serde_library",
+	         "columns",       "partition_keys", "parameters", "serde_parameters", "response"};
+	return_types = {LogicalType::VARCHAR,
+	                LogicalType::VARCHAR,
+	                LogicalType::VARCHAR,
+	                LogicalType::VARCHAR,
+	                LogicalType::VARCHAR,
+	                LogicalType::VARCHAR,
+	                column_type,
+	                column_type,
+	                map_type,
+	                map_type,
+	                LogicalType::VARIANT()};
 	return std::move(result);
 }
 
-unique_ptr<GlobalTableFunctionState> GlueGetTableResponseInit(ClientContext &context,
-                                                              TableFunctionInitInput &input) {
+unique_ptr<GlobalTableFunctionState> GlueGetTableResponseInit(ClientContext &context, TableFunctionInitInput &input) {
 	return make_uniq<GlueGetTableResponseState>();
 }
 
 Value ColumnsToValue(const vector<GlueColumn> &columns, const LogicalType &list_type) {
 	vector<Value> entries;
 	for (auto &column : columns) {
-		entries.push_back(Value::STRUCT({{"name", Value(column.name)},
-		                                 {"type", Value(column.type)},
-		                                 {"comment", column.comment.empty() ? Value(LogicalType::VARCHAR)
-		                                                                    : Value(column.comment)}}));
+		entries.push_back(
+		    Value::STRUCT({{"name", Value(column.name)},
+		                   {"type", Value(column.type)},
+		                   {"comment", column.comment.empty() ? Value(LogicalType::VARCHAR) : Value(column.comment)}}));
 	}
 	return Value::LIST(ListType::GetChildType(list_type), std::move(entries));
 }

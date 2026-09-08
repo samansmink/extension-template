@@ -100,6 +100,8 @@ GlueTable &GlueTableSet::ResolveEntry(ClientContext &context, GlueTable &entry) 
 	resolved->schema_resolved = true;
 	resolved->virtual_columns = std::move(resolved_virtual_columns);
 	resolved->row_id_columns = std::move(resolved_row_id_columns);
+	// the replaced entry may already own a child catalog
+	entry.MoveChildrenTo(*resolved);
 	auto &result = *resolved;
 	auto name = entry.name.GetIdentifierName();
 	entries.erase(name);
@@ -142,6 +144,13 @@ optional_ptr<CatalogEntry> GlueTableSet::CreateEntry(unique_ptr<GlueTable> entry
 void GlueTableSet::RemoveEntry(const string &name) {
 	lock_guard<mutex> guard(entry_lock);
 	entries.erase(name);
+}
+
+void GlueTableSet::DetachChildren(ClientContext &context) {
+	lock_guard<mutex> guard(entry_lock);
+	for (auto &entry : entries) {
+		entry.second->DetachChildren(context);
+	}
 }
 
 void GlueTableSet::ClearEntries() {

@@ -7,7 +7,12 @@
 
 #include "duckdb/catalog/catalog_entry/table_function_catalog_entry.hpp"
 #include "duckdb/common/string_util.hpp"
+#include "duckdb/common/types/uuid.hpp"
+#include "duckdb/main/attached_database.hpp"
 #include "duckdb/main/database.hpp"
+#include "duckdb/main/database_manager.hpp"
+#include "duckdb/main/extension_helper.hpp"
+#include "duckdb/parser/parsed_data/attach_info.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
 
 #include "glue_types.hpp"
@@ -77,6 +82,67 @@ TableCatalogEntry &GlueTable::GetIcebergEntry(ClientContext &context, const Entr
 }
 
 //===--------------------------------------------------------------------===//
+// Child Delta catalog
+//===--------------------------------------------------------------------===//
+Catalog &GlueTable::GetDeltaCatalog(ClientContext &context) {
+	if (table_info.GetFormat() != GlueTableFormat::DELTA) {
+		throw InternalException("GetDeltaCatalog called on Glue table '%s' with type %s", name.GetIdentifierName(),
+		                        table_info.GetFormatName());
+	}
+	lock_guard<mutex> guard(delta_lock);
+	if (delta_database) {
+		return delta_database->GetCatalog();
+	}
+	auto &db = DatabaseInstance::GetDatabase(context);
+	if (!db.ExtensionIsLoaded("delta")) {
+		ExtensionHelper::TryAutoLoadExtension(db, "delta");
+	}
+	if (!db.ExtensionIsLoaded("delta")) {
+		throw MissingExtensionException("Writing to Delta table '%s.%s' requires the delta extension, LOAD it and "
+		                                "try again",
+		                                table_info.database_name, table_info.name);
+	}
+	auto location = table_info.location;
+	StringUtil::RTrim(location, "/");
+
+	// ATTACH '<table root>' AS __glue_delta_<uuid> (TYPE delta, child_catalog_mode true, internal_table_name '<name>')
+	// child_catalog_mode makes the delta extension resolve its own table entry when it plans DML for our entry,
+	// internal_table_name lets the table be looked up in the child under its Glue name.
+	auto &glue_catalog = catalog.Cast<GlueCatalog>();
+	AttachInfo info;
+	info.name = Identifier("__glue_delta_" + UUID::ToString(UUID::GenerateRandomUUID()));
+	info.path = location;
+	info.options = {{"type", Value("delta")},
+	                {"child_catalog_mode", Value::BOOLEAN(true)},
+	                {"internal_table_name", Value(name.GetIdentifierName())}};
+	AttachOptions attach_options(context.db->config.options);
+	// The delta extension only writes when the catalog is attached READ_WRITE explicitly (AUTOMATIC counts as
+	// read only there), so resolve the mode here: writable unless the Glue catalog itself is read only
+	attach_options.access_mode =
+	    glue_catalog.access_mode == AccessMode::READ_ONLY ? AccessMode::READ_ONLY : AccessMode::READ_WRITE;
+	attach_options.db_type = "delta";
+	attach_options.visibility = AttachVisibility::HIDDEN;
+
+	delta_database = DatabaseManager::Get(context).AttachDatabase(context, info, attach_options);
+	return delta_database->GetCatalog();
+}
+
+void GlueTable::DetachChildren(ClientContext &context) {
+	lock_guard<mutex> guard(delta_lock);
+	if (!delta_database) {
+		return;
+	}
+	auto child_name = delta_database->GetCatalog().GetName();
+	delta_database.reset();
+	DatabaseManager::Get(context).DetachDatabase(context, child_name, OnEntryNotFound::RETURN_NULL);
+}
+
+void GlueTable::MoveChildrenTo(GlueTable &other) {
+	lock_guard<mutex> guard(delta_lock);
+	other.delta_database = std::move(delta_database);
+}
+
+//===--------------------------------------------------------------------===//
 // Scan
 //===--------------------------------------------------------------------===//
 TableFunction GlueTable::GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data) {
@@ -129,8 +195,8 @@ TableFunction GlueTable::BindDeltaScan(ClientContext &context, const GlueTableIn
 	auto catalog_entry = catalog_schema.GetEntry(data, CatalogType::TABLE_FUNCTION_ENTRY, "delta_scan");
 	if (!catalog_entry) {
 		throw MissingExtensionException(
-		    "Reading Delta table '%s.%s' requires the delta extension, LOAD it and try again",
-		    table_info.database_name, table_info.name);
+		    "Reading Delta table '%s.%s' requires the delta extension, LOAD it and try again", table_info.database_name,
+		    table_info.name);
 	}
 	auto &function_set = catalog_entry->Cast<TableFunctionCatalogEntry>();
 	auto scan_function = *function_set.functions.GetFunctionByArguments(context, {LogicalType::VARCHAR});

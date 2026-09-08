@@ -24,6 +24,8 @@ public:
 	optional_ptr<CatalogEntry> CreateEntry(unique_ptr<GlueTable> entry);
 	void RemoveEntry(const string &name);
 	void ClearEntries();
+	//! Detach the hidden child catalogs of the loaded tables (on DETACH of the Glue catalog)
+	void DetachChildren(ClientContext &context);
 
 	//! Build a table catalog entry from a Glue table definition, using the (lossy) Glue column definitions
 	unique_ptr<GlueTable> CreateTableEntry(const GlueTableInfo &table);

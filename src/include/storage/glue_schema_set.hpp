@@ -25,6 +25,8 @@ public:
 	optional_ptr<CatalogEntry> CreateEntry(unique_ptr<GlueSchemaEntry> entry);
 	void RemoveEntry(const string &name);
 	void ClearEntries();
+	//! Detach the hidden child catalogs of the loaded tables (on DETACH of the Glue catalog)
+	void DetachChildren(ClientContext &context);
 
 	//! Build a schema catalog entry from a Glue database definition
 	unique_ptr<GlueSchemaEntry> CreateSchemaEntry(const GlueDatabaseInfo &database);

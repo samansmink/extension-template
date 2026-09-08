@@ -190,6 +190,8 @@ Catalog &GlueCatalog::GetIcebergCatalog() {
 }
 
 void GlueCatalog::OnDetach(ClientContext &context) {
+	// per-table child Delta catalogs
+	schemas.DetachChildren(context);
 	if (!iceberg_database) {
 		return;
 	}
@@ -198,13 +200,17 @@ void GlueCatalog::OnDetach(ClientContext &context) {
 	DatabaseManager::Get(context).DetachDatabase(context, name, OnEntryNotFound::RETURN_NULL);
 }
 
-Catalog &GlueCatalog::GetIcebergCatalogForDML(ClientContext &context, TableCatalogEntry &table) {
+Catalog &GlueCatalog::GetCatalogForDML(ClientContext &context, TableCatalogEntry &table) {
 	auto &glue_table = table.Cast<GlueTable>();
-	if (glue_table.table_info.GetFormat() != GlueTableFormat::ICEBERG) {
+	switch (glue_table.table_info.GetFormat()) {
+	case GlueTableFormat::ICEBERG:
+		return GetIcebergCatalog();
+	case GlueTableFormat::DELTA:
+		return glue_table.GetDeltaCatalog(context);
+	default:
 		throw NotImplementedException("Writing to Glue table '%s' with type %s is not supported",
 		                              table.name.GetIdentifierName(), glue_table.table_info.GetFormatName());
 	}
-	return GetIcebergCatalog();
 }
 
 //===--------------------------------------------------------------------===//
@@ -212,7 +218,7 @@ Catalog &GlueCatalog::GetIcebergCatalogForDML(ClientContext &context, TableCatal
 //===--------------------------------------------------------------------===//
 PhysicalOperator &GlueCatalog::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner, LogicalInsert &op,
                                           optional_ptr<PhysicalOperator> plan) {
-	auto &iceberg_catalog = GetIcebergCatalogForDML(context, op.table);
+	auto &iceberg_catalog = GetCatalogForDML(context, op.table);
 	return iceberg_catalog.PlanInsert(context, planner, op, plan);
 }
 
@@ -228,19 +234,19 @@ PhysicalOperator &GlueCatalog::PlanDelete(ClientContext &context, PhysicalPlanGe
 
 PhysicalOperator &GlueCatalog::PlanDeleteOperation(ClientContext &context, PhysicalPlanGenerator &planner,
                                                    LogicalDelete &op, PhysicalOperator &plan) {
-	auto &iceberg_catalog = GetIcebergCatalogForDML(context, op.table);
+	auto &iceberg_catalog = GetCatalogForDML(context, op.table);
 	return iceberg_catalog.PlanDelete(context, planner, op, plan);
 }
 
 PhysicalOperator &GlueCatalog::PlanUpdate(ClientContext &context, PhysicalPlanGenerator &planner, LogicalUpdate &op,
                                           PhysicalOperator &plan) {
-	auto &iceberg_catalog = GetIcebergCatalogForDML(context, op.table);
+	auto &iceberg_catalog = GetCatalogForDML(context, op.table);
 	return iceberg_catalog.PlanUpdate(context, planner, op, plan);
 }
 
 PhysicalOperator &GlueCatalog::PlanMergeInto(ClientContext &context, PhysicalPlanGenerator &planner,
                                              LogicalMergeInto &op, PhysicalOperator &plan) {
-	auto &iceberg_catalog = GetIcebergCatalogForDML(context, op.table);
+	auto &iceberg_catalog = GetCatalogForDML(context, op.table);
 	return iceberg_catalog.PlanMergeInto(context, planner, op, plan);
 }
 
