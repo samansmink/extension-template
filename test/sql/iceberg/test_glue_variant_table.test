@@ -1,6 +1,6 @@
-# name: test/sql/test_glue_variant_table.test
+# name: test/sql/iceberg/test_glue_variant_table.test
 # description: test a table with variant types
-# group: [sql]
+# group: [iceberg]
 
 require httpfs
 

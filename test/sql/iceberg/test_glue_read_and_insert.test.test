@@ -1,6 +1,6 @@
-# name: test/sql/test_glue_read_and_insert.test
+# name: test/sql/iceberg/test_glue_read_and_insert.test.test
 # description: test glue connect
-# group: [sql]
+# group: [iceberg]
 
 require httpfs
 

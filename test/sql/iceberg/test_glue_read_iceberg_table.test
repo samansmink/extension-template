@@ -1,6 +1,6 @@
-# name: test/sql/test_glue_read_iceberg_table.test
+# name: test/sql/iceberg/test_glue_read_iceberg_table.test
 # description: test glue read iceberg table
-# group: [sql]
+# group: [iceberg]
 
 require httpfs
 

@@ -1,6 +1,6 @@
-# name: test/sql/test_create_hive_table.test
+# name: test/sql/hive/test_create_hive_table.test
 # description: test creating a hive table
-# group: [sql]
+# group: [hive]
 
 require httpfs
 

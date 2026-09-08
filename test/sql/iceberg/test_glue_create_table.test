@@ -1,6 +1,6 @@
-# name: test/sql/test_glue_create_table.test
+# name: test/sql/iceberg/test_glue_create_table.test
 # description: test glue create table
-# group: [sql]
+# group: [iceberg]
 
 require httpfs
 

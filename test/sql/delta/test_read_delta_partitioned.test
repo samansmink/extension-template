@@ -1,6 +1,6 @@
-# name: test/sql/delta/test_read_delta.test
+# name: test/sql/delta/test_read_delta_partitioned.test
 # description: test creating a hive table
-# group: [sql]
+# group: [delta]
 
 require httpfs
 
