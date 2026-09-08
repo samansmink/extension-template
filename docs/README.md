@@ -23,6 +23,19 @@ Attach options:
 | `DEFAULT_LOCATION` | S3 prefix for new databases and for tables in databases without a LocationUri (default `s3://simple-s3-glue-database/glue-database-root`) |
 | `DEFAULT_SCHEMA`   | Glue database to use as the default schema                                   |
 
+## Inspecting tables
+
+Every Glue table entry carries its format in `duckdb_tables().tags['table_type']` (`ICEBERG`, `DELTA`, `HIVE` or
+`UNKNOWN`). The full Glue definition of a table is available through a table function:
+
+```sql
+SELECT * FROM glue_get_table_response('my_datalake.default.test_table');
+SELECT response.Parameters.metadata_location FROM glue_get_table_response('my_datalake.default.test_table');
+```
+
+It returns one row with the classification, the Glue table type, location, SerDe, columns, partition keys and
+parameters as columns, plus the complete Glue `Table` object as a VARIANT in `response`.
+
 ## HTTP transport and logging
 
 The AWS SDK's Glue calls are routed through DuckDB's HTTP layer (httpfs), so they honor DuckDB's proxy and

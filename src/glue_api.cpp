@@ -16,6 +16,7 @@
 #include <aws/core/auth/AWSCredentialsProvider.h>
 #include <aws/glue/GlueClient.h>
 #include <aws/glue/GlueErrors.h>
+#include <aws/core/utils/json/JsonSerializer.h>
 #include <aws/glue/model/GetDatabaseRequest.h>
 #include <aws/glue/model/GetDatabasesRequest.h>
 #include <aws/glue/model/GetTableRequest.h>
@@ -334,7 +335,7 @@ vector<GlueTableInfo> GlueAPI::GetTables(ClientContext &context, GlueCatalog &ca
 }
 
 bool GlueAPI::GetTable(ClientContext &context, GlueCatalog &catalog, const string &database_name,
-                       const string &table_name, GlueTableInfo &result) {
+                       const string &table_name, GlueTableInfo &result, string *raw_json) {
 	GlueHttpClientContextScope http_scope(context);
 	auto client = GetClient(context, catalog);
 	Aws::Glue::Model::GetTableRequest request;
@@ -348,7 +349,11 @@ bool GlueAPI::GetTable(ClientContext &context, GlueCatalog &catalog, const strin
 		}
 		ThrowGlueError(outcome, StringUtil::Format("GetTable '%s.%s'", database_name, table_name));
 	}
-	result = ToTableInfo(outcome.GetResult().GetTable());
+	auto &table = outcome.GetResult().GetTable();
+	result = ToTableInfo(table);
+	if (raw_json) {
+		*raw_json = ToStdString(table.Jsonize().View().WriteReadable());
+	}
 	return true;
 }
 

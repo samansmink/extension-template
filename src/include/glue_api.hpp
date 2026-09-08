@@ -79,9 +79,10 @@ public:
 	                        GlueDatabaseInfo &result);
 	//! List all tables of a database
 	static vector<GlueTableInfo> GetTables(ClientContext &context, GlueCatalog &catalog, const string &database_name);
-	//! Fetch a single table, returns false if it does not exist
+	//! Fetch a single table, returns false if it does not exist. 'raw_json' (optional) receives the Glue Table
+	//! object of the response as JSON.
 	static bool GetTable(ClientContext &context, GlueCatalog &catalog, const string &database_name,
-	                     const string &table_name, GlueTableInfo &result);
+	                     const string &table_name, GlueTableInfo &result, string *raw_json = nullptr);
 
 	//! Create a database, throws a CatalogException if it already exists
 	static void CreateDatabase(ClientContext &context, GlueCatalog &catalog, const GlueDatabaseInfo &database);

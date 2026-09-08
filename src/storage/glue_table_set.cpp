@@ -26,7 +26,14 @@ unique_ptr<GlueTable> GlueTableSet::CreateTableEntry(const GlueTableInfo &table)
 	for (auto &column : table.partition_keys) {
 		info.columns.AddColumn(ColumnDefinition(Identifier(column.name), GlueTypes::ToLogicalType(column.type)));
 	}
-	return make_uniq<GlueTable>(catalog, schema, info, table);
+	auto entry = make_uniq<GlueTable>(catalog, schema, info, table);
+	SetTableTypeTag(*entry);
+	return entry;
+}
+
+void GlueTableSet::SetTableTypeTag(GlueTable &entry) {
+	// exposed through duckdb_tables().tags['table_type'] (ICEBERG / DELTA / HIVE / UNKNOWN)
+	entry.tags["table_type"] = GlueTableFormatToString(entry.table_info.GetFormat());
 }
 
 void GlueTableSet::LoadEntries(ClientContext &context) {
@@ -89,6 +96,7 @@ GlueTable &GlueTableSet::ResolveEntry(ClientContext &context, GlueTable &entry) 
 		}
 	}
 	auto resolved = make_uniq<GlueTable>(catalog, schema, info, std::move(table));
+	SetTableTypeTag(*resolved);
 	resolved->schema_resolved = true;
 	resolved->virtual_columns = std::move(resolved_virtual_columns);
 	resolved->row_id_columns = std::move(resolved_row_id_columns);

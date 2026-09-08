@@ -28,3 +28,10 @@ SHOW ALL TABLES
 
 statement ok
 select * from information_schema.columns;
+
+query I
+select tags['table_type'] FROM duckdb_tables() where database_name = 'my_datalake' GROUP BY ALL ORDER BY ALL;
+----
+DELTA
+HIVE
+ICEBERG

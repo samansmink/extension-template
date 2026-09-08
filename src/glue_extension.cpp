@@ -8,6 +8,7 @@
 #include "duckdb/storage/storage_extension.hpp"
 
 #include "glue_attach.hpp"
+#include "glue_functions.hpp"
 #include "glue_http_client.hpp"
 #include "duckdb/main/extension_helper.hpp"
 
@@ -61,6 +62,8 @@ static void LoadInternal(ExtensionLoader &loader) {
 	}
 	// ATTACH '<catalog id>' (TYPE GLUE)
 	StorageExtension::Register(config, "glue", make_shared_ptr<GlueStorageExtension>());
+
+	loader.RegisterFunction(GetGlueGetTableResponseFunction());
 }
 
 void GlueExtension::Load(ExtensionLoader &loader) {

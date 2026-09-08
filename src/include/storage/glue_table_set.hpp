@@ -30,6 +30,7 @@ public:
 
 private:
 	void LoadEntries(ClientContext &context);
+	static void SetTableTypeTag(GlueTable &entry);
 	//! For open table formats the Glue column definitions are lossy (e.g. Iceberg 'timestamptz' is listed as
 	//! 'timestamp'). Before an entry is used to plan a query, rebuild it with the columns of the table format's own
 	//! schema (the child Iceberg catalog's entry). Entries produced by a listing (Scan) keep the Glue columns to
