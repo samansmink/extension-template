@@ -40,19 +40,8 @@ bool GlueSchemaEntry::CatalogTypeIsSupported(CatalogType type) {
 //===--------------------------------------------------------------------===//
 // Create / Drop / Alter
 //===--------------------------------------------------------------------===//
-namespace {
-
-enum class GlueCreateTableType { ICEBERG, HIVE };
-
-//! Options accepted in CREATE TABLE ... WITH (...) for Glue tables
-struct GlueCreateTableOptions {
-	//! New tables default to the Iceberg format
-	GlueCreateTableType type = GlueCreateTableType::ICEBERG;
-	//! Optional explicit S3 location of the table
-	string location;
-};
-
-GlueCreateTableOptions ParseCreateTableOptions(ClientContext &context, const CreateTableInfo &create_info) {
+GlueCreateTableOptions GlueSchemaEntry::ParseCreateTableOptions(ClientContext &context,
+                                                                const CreateTableInfo &create_info) {
 	GlueCreateTableOptions result;
 	if (create_info.options.empty()) {
 		return result;
@@ -86,15 +75,12 @@ GlueCreateTableOptions ParseCreateTableOptions(ClientContext &context, const Cre
 			result.location = string_value;
 			StringUtil::RTrim(result.location, "/");
 		} else {
-			throw BinderException("Unknown CREATE TABLE option '%s' for Glue tables, supported options are 'type' "
-			                      "(ICEBERG or HIVE) and 'location'",
-			                      key);
+			// everything else is a table property, stored in Glue's table parameters (like Hive / Trino do)
+			result.parameters[key] = string_value;
 		}
 	}
 	return result;
 }
-
-} // namespace
 
 optional_ptr<CatalogEntry> GlueSchemaEntry::CreateTable(CatalogTransaction transaction, BoundCreateTableInfo &info) {
 	auto &context = transaction.GetContext();
@@ -163,6 +149,7 @@ optional_ptr<CatalogEntry> GlueSchemaEntry::CreateTable(CatalogTransaction trans
 	table.database_name = database_info.name;
 	table.location =
 	    options.location.empty() ? glue_catalog.GetTableLocation(database_info, table_name) : options.location;
+	table.parameters = options.parameters;
 	for (auto &column : base.columns.Physical()) {
 		if (is_partition_column(column.Name().GetIdentifierName())) {
 			continue;

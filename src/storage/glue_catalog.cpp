@@ -21,6 +21,7 @@
 #include "glue_api.hpp"
 #include "storage/glue_schema_entry.hpp"
 #include "storage/glue_table.hpp"
+#include "storage/glue_hive_insert.hpp"
 
 namespace duckdb {
 
@@ -217,13 +218,23 @@ Catalog &GlueCatalog::GetCatalogForDML(ClientContext &context, TableCatalogEntry
 //===--------------------------------------------------------------------===//
 PhysicalOperator &GlueCatalog::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner, LogicalInsert &op,
                                           optional_ptr<PhysicalOperator> plan) {
-	auto &iceberg_catalog = GetCatalogForDML(context, op.table);
-	return iceberg_catalog.PlanInsert(context, planner, op, plan);
+	auto &glue_table = op.table.Cast<GlueTable>();
+	if (glue_table.table_info.GetFormat() == GlueTableFormat::HIVE) {
+		return GlueHiveInsert::PlanInsert(context, planner, op, glue_table, plan);
+	}
+	auto &child_catalog = GetCatalogForDML(context, op.table);
+	return child_catalog.PlanInsert(context, planner, op, plan);
 }
 
 PhysicalOperator &GlueCatalog::PlanCreateTableAs(ClientContext &context, PhysicalPlanGenerator &planner,
                                                  LogicalCreateTable &op, PhysicalOperator &plan) {
-	throw NotImplementedException("CREATE TABLE AS is not supported for Glue catalogs yet");
+	auto &base = op.info->Base().Cast<CreateTableInfo>();
+	auto options = GlueSchemaEntry::ParseCreateTableOptions(context, base);
+	if (options.type != GlueCreateTableType::HIVE) {
+		throw NotImplementedException(
+		    "CREATE TABLE AS is only supported for Hive tables (WITH (type = 'HIVE')) in a Glue catalog");
+	}
+	return GlueHiveInsert::PlanCreateTableAs(context, planner, op, plan);
 }
 
 PhysicalOperator &GlueCatalog::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op,

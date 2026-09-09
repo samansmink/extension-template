@@ -41,6 +41,12 @@ single-table Delta catalog (`__glue_delta_<uuid>`, child catalog mode) and DML p
 delta extension commits the Delta log at the end of the statement, Glue is not involved. Limitation of the delta
 extension: an INSERT whose rows span several partitions fails, insert one partition per statement.
 
+Hive tables can be written: `INSERT INTO` and `CREATE TABLE ... AS` write parquet files into the table location
+(one `<key>=<value>` directory level per partition key, partition columns are not stored in the files) and register
+new partition directories in Glue with BatchCreatePartition. Unknown `WITH (...)` keys are stored as Glue table
+parameters. Glue has no transactions: the table is created before the query runs, and files are visible as soon as
+they are written. `DROP TABLE` only removes the Glue entry, the files stay in S3.
+
 Hive tables support `ALTER TABLE ... ADD COLUMN`, `DROP COLUMN` and `ALTER COLUMN ... TYPE` (widening changes
 only: integer widening, FLOAT to DOUBLE, anything to VARCHAR, since existing parquet files keep their types).
 Partition keys can not be dropped or retyped. The change is written to Glue with UpdateTable, keeping the rest of

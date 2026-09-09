@@ -7,6 +7,19 @@
 #include "storage/glue_table_set.hpp"
 
 namespace duckdb {
+struct CreateTableInfo;
+
+enum class GlueCreateTableType { ICEBERG, HIVE };
+
+//! Options accepted in CREATE TABLE ... WITH (...) for Glue tables
+struct GlueCreateTableOptions {
+	//! New tables default to the Iceberg format
+	GlueCreateTableType type = GlueCreateTableType::ICEBERG;
+	//! Optional explicit S3 location of the table
+	string location;
+	//! Every other option is stored as a table parameter in Glue
+	unordered_map<string, string> parameters;
+};
 
 //! A Glue database, exposed as a DuckDB schema
 class GlueSchemaEntry : public SchemaCatalogEntry {
@@ -34,6 +47,8 @@ public:
 	void Scan(CatalogType type, const std::function<void(CatalogEntry &)> &callback) override;
 	void DropEntry(ClientContext &context, DropInfo &info) override;
 	optional_ptr<CatalogEntry> LookupEntry(CatalogTransaction transaction, const EntryLookupInfo &lookup_info) override;
+
+	static GlueCreateTableOptions ParseCreateTableOptions(ClientContext &context, const CreateTableInfo &create_info);
 
 private:
 	static bool CatalogTypeIsSupported(CatalogType type);

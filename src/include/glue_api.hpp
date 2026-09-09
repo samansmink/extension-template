@@ -66,6 +66,12 @@ public:
 	string GetParameter(const string &key) const;
 };
 
+//! A partition of a Hive table to register: the partition values (in partition key order) and its location
+struct GluePartitionInput {
+	vector<string> values;
+	string location;
+};
+
 //! Thin wrapper around the AWS SDK Glue client
 class GlueAPI {
 public:
@@ -98,6 +104,9 @@ public:
 	//! ALTER TABLE on Hive tables; open table formats keep their schema in their own metadata.
 	static void UpdateTableColumns(ClientContext &context, GlueCatalog &catalog, const string &database_name,
 	                               const string &table_name, const vector<GlueColumn> &columns);
+	//! Register partitions of a Hive table (BatchCreatePartition). Partitions that already exist are skipped.
+	static void BatchCreatePartitions(ClientContext &context, GlueCatalog &catalog, const string &database_name,
+	                                  const string &table_name, const vector<GluePartitionInput> &partitions);
 	//! Delete a table (the data files are left in place), throws a CatalogException if it does not exist
 	static void DeleteTable(ClientContext &context, GlueCatalog &catalog, const string &database_name,
 	                        const string &table_name);
