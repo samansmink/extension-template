@@ -72,9 +72,8 @@ void GlueCatalog::Initialize(bool load_builtin) {
 
 ErrorData GlueCatalog::SupportsCreateTable(BoundCreateTableInfo &info) {
 	auto &base = info.Base().Cast<CreateTableInfo>();
-	if (!base.partition_keys.empty()) {
-		return ErrorData(ExceptionType::CATALOG, "PARTITIONED BY is not supported yet for tables in a Glue catalog");
-	}
+	// PARTITIONED BY is accepted here and validated in GlueSchemaEntry::CreateTable (Hive tables only, plain
+	// column references)
 	if (!base.sort_keys.empty()) {
 		return ErrorData(ExceptionType::CATALOG, "SORTED BY is not supported for tables in a Glue catalog");
 	}

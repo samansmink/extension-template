@@ -2,6 +2,10 @@
 
 #include "duckdb/catalog/catalog_transaction.hpp"
 #include "duckdb/parser/parsed_data/alter_info.hpp"
+#include "duckdb/parser/parsed_data/alter_table_info.hpp"
+#include "duckdb/common/enum_util.hpp"
+
+#include <algorithm>
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "duckdb/planner/parsed_data/bound_create_table_info.hpp"
@@ -9,6 +13,7 @@
 #include "duckdb/planner/expression_binder/table_function_binder.hpp"
 #include "duckdb/execution/expression_executor.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
+#include "duckdb/parser/expression/columnref_expression.hpp"
 
 #include "glue_types.hpp"
 #include "storage/glue_catalog.hpp"
@@ -114,10 +119,44 @@ optional_ptr<CatalogEntry> GlueSchemaEntry::CreateTable(CatalogTransaction trans
 	if (!base.constraints.empty()) {
 		throw NotImplementedException("Constraints are not supported when creating tables in a Glue catalog");
 	}
-	if (!base.partition_keys.empty()) {
-		throw NotImplementedException("PARTITIONED BY is not supported yet when creating tables in a Glue catalog");
-	}
 	auto options = ParseCreateTableOptions(context, base);
+	if (!base.partition_keys.empty() && options.type != GlueCreateTableType::HIVE) {
+		throw NotImplementedException("PARTITIONED BY is only supported for Hive tables (WITH (type = 'HIVE')) in a "
+		                              "Glue catalog for now");
+	}
+	// Hive partitions are columns: PARTITIONED BY must name columns of the table, which become the PartitionKeys
+	// (in the given order) and are stored in the directory names rather than in the data files
+	vector<string> partition_columns;
+	for (auto &key : base.partition_keys) {
+		if (key->GetExpressionType() != ExpressionType::COLUMN_REF) {
+			throw BinderException("PARTITIONED BY for Hive tables only supports column names, got '%s'",
+			                      key->ToString());
+		}
+		auto &column_ref = key->Cast<ColumnRefExpression>();
+		if (column_ref.IsQualified()) {
+			throw BinderException("PARTITIONED BY for Hive tables only supports plain column names, got '%s'",
+			                      key->ToString());
+		}
+		auto &column_name = column_ref.GetColumnName().GetIdentifierName();
+		if (!base.columns.ColumnExists(column_ref.GetColumnName())) {
+			throw BinderException("PARTITIONED BY column '%s' is not a column of table '%s'", column_name,
+			                      table_name);
+		}
+		for (auto &existing : partition_columns) {
+			if (StringUtil::CIEquals(existing, column_name)) {
+				throw BinderException("PARTITIONED BY column '%s' is listed twice", column_name);
+			}
+		}
+		partition_columns.push_back(column_name);
+	}
+	auto is_partition_column = [&](const string &name) {
+		for (auto &partition_column : partition_columns) {
+			if (StringUtil::CIEquals(partition_column, name)) {
+				return true;
+			}
+		}
+		return false;
+	};
 
 	GlueTableInfo table;
 	table.name = table_name;
@@ -125,10 +164,23 @@ optional_ptr<CatalogEntry> GlueSchemaEntry::CreateTable(CatalogTransaction trans
 	table.location =
 	    options.location.empty() ? glue_catalog.GetTableLocation(database_info, table_name) : options.location;
 	for (auto &column : base.columns.Physical()) {
+		if (is_partition_column(column.Name().GetIdentifierName())) {
+			continue;
+		}
 		GlueColumn glue_column;
 		glue_column.name = column.Name().GetIdentifierName();
 		glue_column.type = GlueTypes::FromLogicalType(column.Type());
 		table.columns.push_back(std::move(glue_column));
+	}
+	for (auto &partition_column : partition_columns) {
+		auto &column = base.columns.GetColumn(Identifier(partition_column));
+		GlueColumn glue_column;
+		glue_column.name = column.Name().GetIdentifierName();
+		glue_column.type = GlueTypes::FromLogicalType(column.Type());
+		table.partition_keys.push_back(std::move(glue_column));
+	}
+	if (table.columns.empty()) {
+		throw BinderException("Table '%s' needs at least one column that is not a partition column", table_name);
 	}
 	switch (options.type) {
 	case GlueCreateTableType::ICEBERG:
@@ -188,8 +240,160 @@ optional_ptr<CatalogEntry> GlueSchemaEntry::CreateType(CatalogTransaction transa
 	throw BinderException("Glue databases do not support creating types");
 }
 
+namespace {
+
+//! Type changes Hive can read back from the existing parquet files: widening only
+bool IsAllowedHiveTypeChange(const LogicalType &from, const LogicalType &to) {
+	if (from == to) {
+		return true;
+	}
+	auto rank = [](LogicalTypeId id) -> int {
+		switch (id) {
+		case LogicalTypeId::TINYINT:
+			return 1;
+		case LogicalTypeId::SMALLINT:
+			return 2;
+		case LogicalTypeId::INTEGER:
+			return 3;
+		case LogicalTypeId::BIGINT:
+			return 4;
+		default:
+			return 0;
+		}
+	};
+	if (rank(from.id()) > 0 && rank(to.id()) > 0) {
+		return rank(to.id()) > rank(from.id());
+	}
+	if (from.id() == LogicalTypeId::FLOAT && to.id() == LogicalTypeId::DOUBLE) {
+		return true;
+	}
+	if (to.id() == LogicalTypeId::VARCHAR) {
+		// everything can be read as a string
+		return true;
+	}
+	return false;
+}
+
+} // namespace
+
 void GlueSchemaEntry::Alter(CatalogTransaction transaction, AlterInfo &info) {
-	throw NotImplementedException("GlueSchemaEntry::Alter");
+	auto &context = transaction.GetContext();
+	auto &glue_catalog = catalog.Cast<GlueCatalog>();
+	auto table_name = info.GetQualifiedName().Name().GetIdentifierName();
+
+	EntryLookupInfo lookup(CatalogType::TABLE_ENTRY, QualifiedName(Identifier(table_name)));
+	auto entry = tables.GetEntry(context, lookup);
+	if (!entry) {
+		throw CatalogException("Table with name \"%s\" does not exist in Glue database \"%s\"", table_name,
+		                       database_info.name);
+	}
+	auto &glue_table = entry->Cast<GlueTable>();
+	if (glue_table.table_info.GetFormat() != GlueTableFormat::HIVE) {
+		throw NotImplementedException("ALTER TABLE is only supported for Hive tables in a Glue catalog, '%s' is a %s "
+		                              "table",
+		                              table_name, glue_table.table_info.GetFormatName());
+	}
+	if (info.type != AlterType::ALTER_TABLE) {
+		throw NotImplementedException("Only ALTER TABLE is supported for Glue tables");
+	}
+	auto &alter_table = info.Cast<AlterTableInfo>();
+
+	// Work on the current Glue definition, not the cached one
+	GlueTableInfo current;
+	if (!GlueAPI::GetTable(context, glue_catalog, database_info.name, table_name, current)) {
+		throw CatalogException("Table with name \"%s\" does not exist in Glue database \"%s\"", table_name,
+		                       database_info.name);
+	}
+	auto find_column = [](vector<GlueColumn> &columns, const string &name) -> optional_ptr<GlueColumn> {
+		for (auto &column : columns) {
+			if (StringUtil::CIEquals(column.name, name)) {
+				return &column;
+			}
+		}
+		return nullptr;
+	};
+	auto is_partition_key = [&](const string &name) {
+		return find_column(current.partition_keys, name) != nullptr;
+	};
+
+	auto columns = current.columns;
+	switch (alter_table.alter_table_type) {
+	case AlterTableType::ADD_COLUMN: {
+		auto &add = alter_table.Cast<AddColumnInfo>();
+		auto &name = add.new_column.Name().GetIdentifierName();
+		if (find_column(columns, name) || is_partition_key(name)) {
+			if (add.if_column_not_exists) {
+				return;
+			}
+			throw CatalogException("Column with name \"%s\" already exists in table \"%s\"", name, table_name);
+		}
+		if (add.new_column.HasDefaultValue()) {
+			throw NotImplementedException("Glue tables do not support column default values");
+		}
+		GlueColumn column;
+		column.name = name;
+		column.type = GlueTypes::FromLogicalType(add.new_column.Type());
+		columns.push_back(std::move(column));
+		break;
+	}
+	case AlterTableType::REMOVE_COLUMN: {
+		auto &remove = alter_table.Cast<RemoveColumnInfo>();
+		auto &name = remove.removed_column.GetIdentifierName();
+		if (is_partition_key(name)) {
+			throw CatalogException("Column \"%s\" is a partition key of table \"%s\" and can not be dropped",
+			                       name, table_name);
+		}
+		if (!find_column(columns, name)) {
+			if (remove.if_column_exists) {
+				return;
+			}
+			throw CatalogException("Table \"%s\" does not have a column with name \"%s\"", table_name, name);
+		}
+		if (columns.size() == 1) {
+			throw CatalogException("Can not drop column \"%s\": table \"%s\" needs at least one column", name,
+			                       table_name);
+		}
+		columns.erase(std::remove_if(columns.begin(), columns.end(),
+		                             [&](const GlueColumn &column) { return StringUtil::CIEquals(column.name, name); }),
+		              columns.end());
+		break;
+	}
+	case AlterTableType::ALTER_COLUMN_TYPE: {
+		auto &change = alter_table.Cast<ChangeColumnTypeInfo>();
+		auto &name = change.column_name.GetIdentifierName();
+		if (is_partition_key(name)) {
+			throw CatalogException("Column \"%s\" is a partition key of table \"%s\" and its type can not be "
+			                       "changed",
+			                       name, table_name);
+		}
+		auto column = find_column(columns, name);
+		if (!column) {
+			throw CatalogException("Table \"%s\" does not have a column with name \"%s\"", table_name, name);
+		}
+		auto from = GlueTypes::ToLogicalType(column->type);
+		if (!IsAllowedHiveTypeChange(from, change.target_type)) {
+			throw CatalogException("Can not change column \"%s\" of table \"%s\" from %s to %s: existing parquet "
+			                       "files keep their types, only widening changes (e.g. INTEGER to BIGINT, FLOAT to "
+			                       "DOUBLE, anything to VARCHAR) are supported for Hive tables",
+			                       name, table_name, from.ToString(), change.target_type.ToString());
+		}
+		column->type = GlueTypes::FromLogicalType(change.target_type);
+		break;
+	}
+	default:
+		throw NotImplementedException("ALTER TABLE %s is not supported for Glue tables",
+		                              EnumUtil::ToString(alter_table.alter_table_type));
+	}
+
+	GlueAPI::UpdateTableColumns(context, glue_catalog, database_info.name, table_name, columns);
+
+	// refresh the cached entry from what Glue stored
+	GlueTableInfo updated;
+	if (!GlueAPI::GetTable(context, glue_catalog, database_info.name, table_name, updated)) {
+		throw CatalogException("Table \"%s.%s\" was altered but could not be fetched afterwards",
+		                       database_info.name, table_name);
+	}
+	tables.CreateEntry(tables.CreateTableEntry(updated));
 }
 
 void GlueSchemaEntry::DropEntry(ClientContext &context, DropInfo &info) {

@@ -7,6 +7,7 @@
 
 #include "duckdb/catalog/catalog_entry/table_function_catalog_entry.hpp"
 #include "duckdb/common/string_util.hpp"
+#include "duckdb/common/file_system.hpp"
 #include "duckdb/common/types/uuid.hpp"
 #include "duckdb/main/attached_database.hpp"
 #include "duckdb/main/database.hpp"
@@ -15,6 +16,7 @@
 #include "duckdb/parser/parsed_data/attach_info.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
 
+#include "glue_functions.hpp"
 #include "glue_types.hpp"
 #include "storage/glue_catalog.hpp"
 #include "storage/glue_schema_entry.hpp"
@@ -250,6 +252,18 @@ TableFunction GlueTable::GetHiveScanFunction(ClientContext &context, unique_ptr<
 	}
 	glob += "/*";
 
+	// List the data files ourselves: a table without files (just created) scans as empty rather than failing,
+	// and read_parquet does not have to glob a second time
+	auto &fs = FileSystem::GetFileSystem(context);
+	auto files = fs.GlobFiles(glob, FileGlobOptions::ALLOW_EMPTY);
+	if (files.empty()) {
+		return MakeGlueEmptyScan(bind_data);
+	}
+	vector<Value> file_paths;
+	for (auto &file : files) {
+		file_paths.emplace_back(file.path);
+	}
+
 	auto &db = DatabaseInstance::GetDatabase(context);
 	auto &system_catalog = Catalog::GetSystemCatalog(db);
 	auto data = CatalogTransaction::GetSystemTransaction(db);
@@ -260,7 +274,8 @@ TableFunction GlueTable::GetHiveScanFunction(ClientContext &context, unique_ptr<
 		                                latest_info.database_name, latest_info.name);
 	}
 	auto &function_set = catalog_entry->Cast<TableFunctionCatalogEntry>();
-	auto scan_function = *function_set.functions.GetFunctionByArguments(context, {LogicalType::VARCHAR});
+	auto scan_function =
+	    *function_set.functions.GetFunctionByArguments(context, {LogicalType::LIST(LogicalType::VARCHAR)});
 
 	named_parameter_map_t param_map;
 	if (!hive_types.empty()) {
@@ -272,7 +287,7 @@ TableFunction GlueTable::GetHiveScanFunction(ClientContext &context, unique_ptr<
 	vector<LogicalType> return_types;
 	vector<Identifier> names;
 	TableFunctionRef empty_ref;
-	vector<Value> inputs = {Value(glob)};
+	vector<Value> inputs = {Value::LIST(LogicalType::VARCHAR, std::move(file_paths))};
 	TableFunctionBindInput bind_input(inputs, param_map, return_types, names, nullptr, nullptr, scan_function,
 	                                  empty_ref);
 	bind_data = scan_function.bind(context, bind_input, return_types, names);

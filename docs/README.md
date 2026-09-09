@@ -41,6 +41,11 @@ single-table Delta catalog (`__glue_delta_<uuid>`, child catalog mode) and DML p
 delta extension commits the Delta log at the end of the statement, Glue is not involved. Limitation of the delta
 extension: an INSERT whose rows span several partitions fails, insert one partition per statement.
 
+Hive tables support `ALTER TABLE ... ADD COLUMN`, `DROP COLUMN` and `ALTER COLUMN ... TYPE` (widening changes
+only: integer widening, FLOAT to DOUBLE, anything to VARCHAR, since existing parquet files keep their types).
+Partition keys can not be dropped or retyped. The change is written to Glue with UpdateTable, keeping the rest of
+the definition; Iceberg and Delta tables keep their schema in their own metadata and reject ALTER TABLE.
+
 ## HTTP transport and logging
 
 The AWS SDK's Glue calls are routed through DuckDB's HTTP layer (httpfs), so they honor DuckDB's proxy and

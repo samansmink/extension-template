@@ -1,0 +1,53 @@
+# name: test/sql/hive/test_create_hive_table.test
+# description: test creating a hive table
+# group: [hive]
+
+require httpfs
+
+require aws
+
+require iceberg
+
+require glue
+
+statement ok
+CREATE SECRET (
+  TYPE S3,
+  PROVIDER credential_chain,
+  REGION 'eu-central-1',
+  PROFILE 'personal'
+);
+
+statement ok
+attach '984506134640' as my_datalake (
+    TYPE glue
+);
+
+statement ok
+SHOW ALL TABLES;
+
+
+statement ok
+DROP TABLE IF EXISTS my_datalake.default.hive_table_partitioned;
+
+statement ok
+CREATE TABLE IF NOT EXISTS my_datalake.default.hive_table_partitioned
+(int_col integer, variant_col VARIANT, timestamp_col TIMESTAMP) PARTITIONED BY (int_col) WITH (type = 'HIVE');
+
+query I
+select distinct table_name from information_schema.columns where table_name = 'hive_table_partitioned';
+----
+hive_table_partitioned
+
+query I
+select partition_keys[1].name, partition_keys[1].type from glue_get_table_response('my_datalake.default.hive_table_partitioned');
+----
+int_col	int
+
+mode skip
+
+# We are not inserting into hive tables yet.
+statement ok
+insert into my_datalake.default.hive_table values (1, 5::VARIANT, now());
+
+

@@ -1,0 +1,71 @@
+# name: test/sql/hive/ddl/alter_table_add_column.test
+# description: ALTER TABLE ADD COLUMN on a Hive table registered in Glue
+# group: [ddl]
+
+require httpfs
+
+require aws
+
+require iceberg
+
+require glue
+
+statement ok
+CREATE SECRET (
+  TYPE S3,
+  PROVIDER credential_chain,
+  REGION 'eu-central-1',
+  PROFILE 'personal'
+);
+
+statement ok
+attach '984506134640' as my_datalake (
+    TYPE glue
+);
+
+statement ok
+DROP TABLE IF EXISTS my_datalake.default.ddl_add_column;
+
+statement ok
+CREATE TABLE my_datalake.default.ddl_add_column (id INTEGER, name VARCHAR) WITH (type = 'HIVE');
+
+query II
+SELECT column_name, data_type FROM duckdb_columns() WHERE database_name = 'my_datalake' AND table_name = 'ddl_add_column' ORDER BY column_index;
+----
+id	INTEGER
+name	VARCHAR
+
+statement ok
+ALTER TABLE my_datalake.default.ddl_add_column ADD COLUMN score DOUBLE;
+
+# the new column is appended after the existing ones
+query II
+SELECT column_name, data_type FROM duckdb_columns() WHERE database_name = 'my_datalake' AND table_name = 'ddl_add_column' ORDER BY column_index;
+----
+id	INTEGER
+name	VARCHAR
+score	DOUBLE
+
+statement ok
+ALTER TABLE my_datalake.default.ddl_add_column ADD COLUMN IF NOT EXISTS score DOUBLE;
+
+# adding an existing column without IF NOT EXISTS is an error
+statement error
+ALTER TABLE my_datalake.default.ddl_add_column ADD COLUMN score DOUBLE;
+----
+
+# a second attach sees the change, it is stored in Glue and not only in the cached entry
+statement ok
+attach '984506134640' as my_datalake_2 (
+    TYPE glue
+);
+
+query II
+SELECT column_name, data_type FROM duckdb_columns() WHERE database_name = 'my_datalake_2' AND table_name = 'ddl_add_column' ORDER BY column_index;
+----
+id	INTEGER
+name	VARCHAR
+score	DOUBLE
+
+statement ok
+DROP TABLE my_datalake.default.ddl_add_column;

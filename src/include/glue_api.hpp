@@ -94,6 +94,10 @@ public:
 	//! Create a standard (Hive style) Glue table storing parquet files at 'table.location', with the columns and
 	//! partition keys in 'table'
 	static void CreateHiveTable(ClientContext &context, GlueCatalog &catalog, const GlueTableInfo &table);
+	//! Replace the (data) columns of a table, keeping everything else of its Glue definition as is. Used for
+	//! ALTER TABLE on Hive tables; open table formats keep their schema in their own metadata.
+	static void UpdateTableColumns(ClientContext &context, GlueCatalog &catalog, const string &database_name,
+	                               const string &table_name, const vector<GlueColumn> &columns);
 	//! Delete a table (the data files are left in place), throws a CatalogException if it does not exist
 	static void DeleteTable(ClientContext &context, GlueCatalog &catalog, const string &database_name,
 	                        const string &table_name);

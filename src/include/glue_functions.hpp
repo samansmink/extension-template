@@ -9,4 +9,8 @@ namespace duckdb {
 //! the complete Glue Table object as VARIANT.
 TableFunction GetGlueGetTableResponseFunction();
 
+//! A scan that produces no rows, for tables without any data files (e.g. a freshly created Hive table). The
+//! columns come from the catalog entry, which is what the binder plans with; 'bind_data' is filled in.
+TableFunction MakeGlueEmptyScan(unique_ptr<FunctionData> &bind_data);
+
 } // namespace duckdb

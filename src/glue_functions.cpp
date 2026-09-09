@@ -122,6 +122,31 @@ void GlueGetTableResponseScan(ClientContext &context, TableFunctionInput &data, 
 
 } // namespace
 
+//===--------------------------------------------------------------------===//
+// glue_empty_scan
+//===--------------------------------------------------------------------===//
+namespace {
+
+struct GlueEmptyScanState : public GlobalTableFunctionState {
+};
+
+unique_ptr<GlobalTableFunctionState> GlueEmptyScanInit(ClientContext &context, TableFunctionInitInput &input) {
+	return make_uniq<GlueEmptyScanState>();
+}
+
+void GlueEmptyScan(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
+	output.SetCardinality(0);
+}
+
+} // namespace
+
+TableFunction MakeGlueEmptyScan(unique_ptr<FunctionData> &bind_data) {
+	TableFunction function("glue_empty_scan", {}, GlueEmptyScan, nullptr, GlueEmptyScanInit);
+	function.projection_pushdown = true;
+	bind_data = make_uniq<TableFunctionData>();
+	return function;
+}
+
 TableFunction GetGlueGetTableResponseFunction() {
 	TableFunction function("glue_get_table_response", {LogicalType::VARCHAR}, GlueGetTableResponseScan,
 	                       GlueGetTableResponseBind, GlueGetTableResponseInit);

@@ -25,6 +25,7 @@
 #include <aws/glue/model/CreateTableRequest.h>
 #include <aws/glue/model/DeleteDatabaseRequest.h>
 #include <aws/glue/model/DeleteTableRequest.h>
+#include <aws/glue/model/UpdateTableRequest.h>
 #include <aws/glue/model/SerDeInfo.h>
 
 #include <sys/stat.h>
@@ -529,6 +530,75 @@ void GlueAPI::CreateHiveTable(ClientContext &context, GlueCatalog &catalog, cons
 		}
 		ThrowGlueError(outcome, StringUtil::Format("CreateTable '%s.%s' (location '%s')", table.database_name,
 		                                           table.name, table.location));
+	}
+}
+
+void GlueAPI::UpdateTableColumns(ClientContext &context, GlueCatalog &catalog, const string &database_name,
+                                 const string &table_name, const vector<GlueColumn> &columns) {
+	GlueHttpClientContextScope http_scope(context);
+	auto client = GetClient(context, catalog);
+
+	// UpdateTable replaces the whole definition, so start from the current one and change only the columns
+	Aws::Glue::Model::GetTableRequest get_request;
+	SetCatalogId(get_request, catalog);
+	get_request.SetDatabaseName(database_name);
+	get_request.SetName(table_name);
+	auto get_outcome = client->GetTable(get_request);
+	if (!get_outcome.IsSuccess()) {
+		if (IsEntityNotFound(get_outcome)) {
+			throw CatalogException("Table with name \"%s\" does not exist in Glue database \"%s\"", table_name,
+			                       database_name);
+		}
+		ThrowGlueError(get_outcome, StringUtil::Format("GetTable '%s.%s'", database_name, table_name));
+	}
+	auto &table = get_outcome.GetResult().GetTable();
+
+	Aws::Glue::Model::TableInput table_input;
+	table_input.SetName(table.GetName());
+	if (table.DescriptionHasBeenSet()) {
+		table_input.SetDescription(table.GetDescription());
+	}
+	if (table.OwnerHasBeenSet()) {
+		table_input.SetOwner(table.GetOwner());
+	}
+	if (table.LastAccessTimeHasBeenSet()) {
+		table_input.SetLastAccessTime(table.GetLastAccessTime());
+	}
+	if (table.LastAnalyzedTimeHasBeenSet()) {
+		table_input.SetLastAnalyzedTime(table.GetLastAnalyzedTime());
+	}
+	if (table.RetentionHasBeenSet()) {
+		table_input.SetRetention(table.GetRetention());
+	}
+	if (table.PartitionKeysHasBeenSet()) {
+		table_input.SetPartitionKeys(table.GetPartitionKeys());
+	}
+	if (table.ViewOriginalTextHasBeenSet()) {
+		table_input.SetViewOriginalText(table.GetViewOriginalText());
+	}
+	if (table.ViewExpandedTextHasBeenSet()) {
+		table_input.SetViewExpandedText(table.GetViewExpandedText());
+	}
+	if (table.TableTypeHasBeenSet()) {
+		table_input.SetTableType(table.GetTableType());
+	}
+	if (table.ParametersHasBeenSet()) {
+		table_input.SetParameters(table.GetParameters());
+	}
+	if (table.TargetTableHasBeenSet()) {
+		table_input.SetTargetTable(table.GetTargetTable());
+	}
+	auto storage_descriptor = table.GetStorageDescriptor();
+	storage_descriptor.SetColumns(ToAwsColumns(columns));
+	table_input.SetStorageDescriptor(storage_descriptor);
+
+	Aws::Glue::Model::UpdateTableRequest update_request;
+	SetCatalogId(update_request, catalog);
+	update_request.SetDatabaseName(database_name);
+	update_request.SetTableInput(table_input);
+	auto update_outcome = client->UpdateTable(update_request);
+	if (!update_outcome.IsSuccess()) {
+		ThrowGlueError(update_outcome, StringUtil::Format("UpdateTable '%s.%s'", database_name, table_name));
 	}
 }
 
