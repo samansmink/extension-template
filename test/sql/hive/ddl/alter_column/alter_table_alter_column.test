@@ -28,7 +28,7 @@ statement ok
 DROP TABLE IF EXISTS my_datalake.default.ddl_alter_column;
 
 statement ok
-CREATE TABLE my_datalake.default.ddl_alter_column (id INTEGER, price FLOAT, label VARCHAR) WITH (type = 'HIVE');
+CREATE TABLE my_datalake.default.ddl_alter_column (id INTEGER, price FLOAT, label VARCHAR);
 
 # widening changes, the ones Hive can read back from existing parquet files
 statement ok

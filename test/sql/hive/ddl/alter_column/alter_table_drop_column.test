@@ -28,7 +28,7 @@ statement ok
 DROP TABLE IF EXISTS my_datalake.default.ddl_drop_column;
 
 statement ok
-CREATE TABLE my_datalake.default.ddl_drop_column (id INTEGER, name VARCHAR, score DOUBLE) WITH (type = 'HIVE');
+CREATE TABLE my_datalake.default.ddl_drop_column (id INTEGER, name VARCHAR, score DOUBLE);
 
 statement ok
 ALTER TABLE my_datalake.default.ddl_drop_column DROP COLUMN name;

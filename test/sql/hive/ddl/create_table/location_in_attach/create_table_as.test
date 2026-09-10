@@ -32,7 +32,6 @@ statement ok
 CREATE TABLE my_datalake.default.ctas_partitioned_with_options
 PARTITIONED BY (category, year)
 WITH (
-    type = 'HIVE',
     'foo' = 'buzz'
 ) AS
 SELECT range AS id,
@@ -100,7 +99,7 @@ statement ok
 DROP TABLE IF EXISTS my_datalake.default.ctas_plain;
 
 statement ok
-CREATE TABLE my_datalake.default.ctas_plain WITH (type = 'HIVE') AS SELECT range AS id, range * 2 AS twice FROM range(10);
+CREATE TABLE my_datalake.default.ctas_plain AS SELECT range AS id, range * 2 AS twice FROM range(10);
 
 query II
 SELECT count(*), sum(twice) FROM my_datalake.default.ctas_plain;

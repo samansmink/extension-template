@@ -33,7 +33,7 @@ DROP TABLE IF EXISTS my_datalake.default.hive_table;
 
 statement ok
 CREATE TABLE IF NOT EXISTS my_datalake.default.hive_table
-(int_col integer, variant_col VARIANT, timestamp_col TIMESTAMP) WITH (type = 'HIVE');
+(int_col integer, variant_col VARIANT, timestamp_col TIMESTAMP);
 
 query I
 select distinct table_name from information_schema.columns where table_name = 'hive_table';

@@ -28,7 +28,7 @@ statement ok
 DROP TABLE IF EXISTS my_datalake.default.ddl_add_column;
 
 statement ok
-CREATE TABLE my_datalake.default.ddl_add_column (id INTEGER, name VARCHAR) WITH (type = 'HIVE');
+CREATE TABLE my_datalake.default.ddl_add_column (id INTEGER, name VARCHAR);
 
 query II
 SELECT column_name, data_type FROM duckdb_columns() WHERE database_name = 'my_datalake' AND table_name = 'ddl_add_column' ORDER BY column_index;

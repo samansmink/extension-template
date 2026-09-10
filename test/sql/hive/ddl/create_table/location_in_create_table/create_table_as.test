@@ -31,7 +31,6 @@ statement ok
 CREATE TABLE my_datalake.default.ctas_partitioned_with_options
 PARTITIONED BY (category, year)
 WITH (
-    type = 'HIVE',
     location = '{DEFAULT_S3_LOCATION}/{TEST_DIR}/ctas_partitioned_with_options',
     'foo' = 'buzz'
 ) AS
@@ -100,7 +99,7 @@ statement ok
 DROP TABLE IF EXISTS my_datalake.default.ctas_plain;
 
 statement ok
-CREATE TABLE my_datalake.default.ctas_plain WITH (type = 'HIVE', location = '{DEFAULT_S3_LOCATION}/{TEST_DIR}/ctas_plain') AS SELECT range AS id, range * 2 AS twice FROM range(10);
+CREATE TABLE my_datalake.default.ctas_plain WITH (location = '{DEFAULT_S3_LOCATION}/{TEST_DIR}/ctas_plain') AS SELECT range AS id, range * 2 AS twice FROM range(10);
 
 query II
 SELECT count(*), sum(twice) FROM my_datalake.default.ctas_plain;

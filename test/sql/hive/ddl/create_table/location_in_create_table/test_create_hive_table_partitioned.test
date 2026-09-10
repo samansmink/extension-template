@@ -32,7 +32,7 @@ DROP TABLE IF EXISTS my_datalake.default.hive_table_partitioned;
 
 statement ok
 CREATE TABLE IF NOT EXISTS my_datalake.default.hive_table_partitioned
-(int_col integer, variant_col VARIANT, timestamp_col TIMESTAMP) PARTITIONED BY (int_col) WITH (type = 'HIVE', location = '{DEFAULT_S3_LOCATION}/{TEST_DIR}/hive_table_partitioned');
+(int_col integer, variant_col VARIANT, timestamp_col TIMESTAMP) PARTITIONED BY (int_col) WITH (location = '{DEFAULT_S3_LOCATION}/{TEST_DIR}/hive_table_partitioned');
 
 query I
 select distinct table_name from information_schema.columns where table_name = 'hive_table_partitioned';
