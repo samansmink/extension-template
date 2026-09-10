@@ -102,8 +102,8 @@ void HiveMultiFileReader::BindOptions(MultiFileOptions &options, MultiFileList &
 //===--------------------------------------------------------------------===//
 //! Replace references to partition columns of the scanned table by the partition's values
 static void ReplacePartitionColumnRefs(ClientContext &context, unique_ptr<Expression> &expr, TableIndex table_index,
-                                       const unordered_map<idx_t, idx_t> &projection_to_key,
-                                       const HiveScanInfo &info, const GluePartitionInfo &partition) {
+                                       const unordered_map<idx_t, idx_t> &projection_to_key, const HiveScanInfo &info,
+                                       const GluePartitionInfo &partition) {
 	if (expr->GetExpressionType() == ExpressionType::BOUND_COLUMN_REF) {
 		auto &colref = expr->Cast<BoundColumnRefExpression>();
 		if (colref.Binding().table_index != table_index) {

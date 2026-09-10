@@ -108,6 +108,21 @@ public:
 	//! ALTER TABLE on Hive tables; open table formats keep their schema in their own metadata.
 	static void UpdateTableColumns(ClientContext &context, GlueCatalog &catalog, const string &database_name,
 	                               const string &table_name, const vector<GlueColumn> &columns);
+	//! Fetch a single partition by its values, returns false if it does not exist
+	static bool GetPartition(ClientContext &context, GlueCatalog &catalog, const string &database_name,
+	                         const string &table_name, const vector<string> &values, GluePartitionInfo &result);
+	//! Register one partition of a Hive table. Returns false if it already exists and 'if_not_exists' is set, throws
+	//! a CatalogException if it already exists otherwise.
+	static bool CreatePartition(ClientContext &context, GlueCatalog &catalog, const string &database_name,
+	                            const string &table_name, const GluePartitionInput &partition, bool if_not_exists);
+	//! Unregister a partition (the data files are left in place), returns false if it does not exist
+	static bool DeletePartition(ClientContext &context, GlueCatalog &catalog, const string &database_name,
+	                            const string &table_name, const vector<string> &values);
+	//! Change the values of a partition, keeping its location and everything else (UpdatePartition). Throws a
+	//! CatalogException if the partition does not exist or a partition with the new values already exists.
+	static void RenamePartition(ClientContext &context, GlueCatalog &catalog, const string &database_name,
+	                            const string &table_name, const vector<string> &values,
+	                            const vector<string> &new_values);
 	//! List the partitions of a Hive table (GetPartitions, all pages)
 	static vector<GluePartitionInfo> GetPartitions(ClientContext &context, GlueCatalog &catalog,
 	                                               const string &database_name, const string &table_name);

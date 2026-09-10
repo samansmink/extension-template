@@ -117,8 +117,7 @@ optional_ptr<CatalogEntry> GlueSchemaEntry::CreateTable(CatalogTransaction trans
 		}
 		auto &column_name = column_ref.GetColumnName().GetIdentifierName();
 		if (!base.columns.ColumnExists(column_ref.GetColumnName())) {
-			throw BinderException("PARTITIONED BY column '%s' is not a column of table '%s'", column_name,
-			                      table_name);
+			throw BinderException("PARTITIONED BY column '%s' is not a column of table '%s'", column_name, table_name);
 		}
 		for (auto &existing : partition_columns) {
 			if (StringUtil::CIEquals(existing, column_name)) {
@@ -312,8 +311,8 @@ void GlueSchemaEntry::Alter(CatalogTransaction transaction, AlterInfo &info) {
 		auto &remove = alter_table.Cast<RemoveColumnInfo>();
 		auto &name = remove.removed_column.GetIdentifierName();
 		if (is_partition_key(name)) {
-			throw CatalogException("Column \"%s\" is a partition key of table \"%s\" and can not be dropped",
-			                       name, table_name);
+			throw CatalogException("Column \"%s\" is a partition key of table \"%s\" and can not be dropped", name,
+			                       table_name);
 		}
 		if (!find_column(columns, name)) {
 			if (remove.if_column_exists) {
@@ -362,8 +361,8 @@ void GlueSchemaEntry::Alter(CatalogTransaction transaction, AlterInfo &info) {
 	// refresh the cached entry from what Glue stored
 	GlueTableInfo updated;
 	if (!GlueAPI::GetTable(context, glue_catalog, database_info.name, table_name, updated)) {
-		throw CatalogException("Table \"%s.%s\" was altered but could not be fetched afterwards",
-		                       database_info.name, table_name);
+		throw CatalogException("Table \"%s.%s\" was altered but could not be fetched afterwards", database_info.name,
+		                       table_name);
 	}
 	tables.CreateEntry(tables.CreateTableEntry(updated));
 }

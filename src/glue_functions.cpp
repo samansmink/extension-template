@@ -127,8 +127,7 @@ void GlueGetTableResponseScan(ClientContext &context, TableFunctionInput &data, 
 //===--------------------------------------------------------------------===//
 namespace {
 
-struct GlueEmptyScanState : public GlobalTableFunctionState {
-};
+struct GlueEmptyScanState : public GlobalTableFunctionState {};
 
 unique_ptr<GlobalTableFunctionState> GlueEmptyScanInit(ClientContext &context, TableFunctionInitInput &input) {
 	return make_uniq<GlueEmptyScanState>();

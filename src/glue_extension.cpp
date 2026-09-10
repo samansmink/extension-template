@@ -64,6 +64,10 @@ static void LoadInternal(ExtensionLoader &loader) {
 	StorageExtension::Register(config, "glue", make_shared_ptr<GlueStorageExtension>());
 
 	loader.RegisterFunction(GetGlueGetTableResponseFunction());
+	loader.RegisterFunction(GetGluePartitionsFunction());
+	loader.RegisterFunction(GetGlueAddPartitionFunction());
+	loader.RegisterFunction(GetGlueDropPartitionFunction());
+	loader.RegisterFunction(GetGlueRenamePartitionFunction());
 }
 
 void GlueExtension::Load(ExtensionLoader &loader) {

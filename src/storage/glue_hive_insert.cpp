@@ -21,8 +21,7 @@ namespace duckdb {
 // Planning
 //===--------------------------------------------------------------------===//
 GlueHiveInsert::GlueHiveInsert(PhysicalPlan &physical_plan, LogicalOperator &op, GlueTable &table, bool discard)
-    : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT},
-                       op.estimated_cardinality),
+    : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT}, op.estimated_cardinality),
       table(table), discard(discard) {
 }
 
@@ -37,9 +36,9 @@ static optional_ptr<CopyFunctionCatalogEntry> TryGetCopyFunction(DatabaseInstanc
 	return &entry->Cast<CopyFunctionCatalogEntry>();
 }
 
-PhysicalOperator &GlueHiveInsert::PlanWrite(ClientContext &context, PhysicalPlanGenerator &planner,
-                                            LogicalOperator &op, GlueTable &table, PhysicalOperator &plan,
-                                            const vector<Identifier> &names, const vector<LogicalType> &types) {
+PhysicalOperator &GlueHiveInsert::PlanWrite(ClientContext &context, PhysicalPlanGenerator &planner, LogicalOperator &op,
+                                            GlueTable &table, PhysicalOperator &plan, const vector<Identifier> &names,
+                                            const vector<LogicalType> &types) {
 	auto &table_info = table.table_info;
 	auto location = table_info.location;
 	StringUtil::RTrim(location, "/");
@@ -75,12 +74,11 @@ PhysicalOperator &GlueHiveInsert::PlanWrite(ClientContext &context, PhysicalPlan
 	CopyFunctionBindInput bind_input(*copy_info);
 	auto names_to_write = LogicalCopyToFile::GetNamesWithoutPartitions(names, partition_columns, false);
 	auto types_to_write = LogicalCopyToFile::GetTypesWithoutPartitions(types, partition_columns, false);
-	auto function_data =
-	    copy_function->function.copy_to_bind(context, bind_input, names_to_write, types_to_write);
+	auto function_data = copy_function->function.copy_to_bind(context, bind_input, names_to_write, types_to_write);
 
 	auto &physical_copy = planner.Make<PhysicalCopyToFile>(
-	    GetCopyFunctionReturnLogicalTypes(CopyFunctionReturnType::CHANGED_ROWS_AND_FILE_LIST),
-	    copy_function->function, std::move(function_data), op.estimated_cardinality);
+	    GetCopyFunctionReturnLogicalTypes(CopyFunctionReturnType::CHANGED_ROWS_AND_FILE_LIST), copy_function->function,
+	    std::move(function_data), op.estimated_cardinality);
 	auto &copy = physical_copy.Cast<PhysicalCopyToFile>();
 	auto write_id = UUID::ToString(UUID::GenerateRandomUUID());
 	copy.use_tmp_file = false;
@@ -111,8 +109,8 @@ PhysicalOperator &GlueHiveInsert::PlanWrite(ClientContext &context, PhysicalPlan
 	return insert;
 }
 
-PhysicalOperator &GlueHiveInsert::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner,
-                                             LogicalInsert &op, GlueTable &table, optional_ptr<PhysicalOperator> plan) {
+PhysicalOperator &GlueHiveInsert::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner, LogicalInsert &op,
+                                             GlueTable &table, optional_ptr<PhysicalOperator> plan) {
 	if (op.return_chunk) {
 		throw BinderException("RETURNING clause not yet supported for insertion into a Hive table");
 	}

@@ -28,6 +28,10 @@
 #include <aws/glue/model/UpdateTableRequest.h>
 #include <aws/glue/model/BatchCreatePartitionRequest.h>
 #include <aws/glue/model/GetPartitionsRequest.h>
+#include <aws/glue/model/GetPartitionRequest.h>
+#include <aws/glue/model/CreatePartitionRequest.h>
+#include <aws/glue/model/DeletePartitionRequest.h>
+#include <aws/glue/model/UpdatePartitionRequest.h>
 #include <aws/glue/model/SerDeInfo.h>
 
 #include <sys/stat.h>
@@ -200,6 +204,14 @@ template <class OUTCOME>
 template <class OUTCOME>
 bool IsEntityNotFound(const OUTCOME &outcome) {
 	return outcome.GetError().GetErrorType() == Aws::Glue::GlueErrors::ENTITY_NOT_FOUND;
+}
+
+string PartitionValuesToString(const vector<string> &values) {
+	return StringUtil::Join(values, ", ");
+}
+
+Aws::Vector<Aws::String> ToAwsValues(const vector<string> &values) {
+	return Aws::Vector<Aws::String>(values.begin(), values.end());
 }
 
 template <class REQUEST>
@@ -555,6 +567,149 @@ void GlueAPI::UpdateTableColumns(ClientContext &context, GlueCatalog &catalog, c
 	auto update_outcome = client->UpdateTable(update_request);
 	if (!update_outcome.IsSuccess()) {
 		ThrowGlueError(update_outcome, StringUtil::Format("UpdateTable '%s.%s'", database_name, table_name));
+	}
+}
+
+bool GlueAPI::GetPartition(ClientContext &context, GlueCatalog &catalog, const string &database_name,
+                           const string &table_name, const vector<string> &values, GluePartitionInfo &result) {
+	GlueHttpClientContextScope http_scope(context);
+	auto client = GetClient(context, catalog);
+	Aws::Glue::Model::GetPartitionRequest request;
+	SetCatalogId(request, catalog);
+	request.SetDatabaseName(database_name);
+	request.SetTableName(table_name);
+	request.SetPartitionValues(ToAwsValues(values));
+	auto outcome = client->GetPartition(request);
+	if (!outcome.IsSuccess()) {
+		if (IsEntityNotFound(outcome)) {
+			return false;
+		}
+		ThrowGlueError(outcome, StringUtil::Format("GetPartition '%s.%s' [%s]", database_name, table_name,
+		                                           PartitionValuesToString(values)));
+	}
+	auto &partition = outcome.GetResult().GetPartition();
+	result.values.clear();
+	for (auto &value : partition.GetValues()) {
+		result.values.push_back(ToStdString(value));
+	}
+	result.location = ToStdString(partition.GetStorageDescriptor().GetLocation());
+	return true;
+}
+
+bool GlueAPI::CreatePartition(ClientContext &context, GlueCatalog &catalog, const string &database_name,
+                              const string &table_name, const GluePartitionInput &partition, bool if_not_exists) {
+	GlueHttpClientContextScope http_scope(context);
+	auto client = GetClient(context, catalog);
+
+	// A partition carries its own StorageDescriptor: the table's, with the partition's location
+	Aws::Glue::Model::GetTableRequest get_request;
+	SetCatalogId(get_request, catalog);
+	get_request.SetDatabaseName(database_name);
+	get_request.SetName(table_name);
+	auto get_outcome = client->GetTable(get_request);
+	if (!get_outcome.IsSuccess()) {
+		ThrowGlueError(get_outcome, StringUtil::Format("GetTable '%s.%s'", database_name, table_name));
+	}
+	auto descriptor = get_outcome.GetResult().GetTable().GetStorageDescriptor();
+	descriptor.SetLocation(partition.location);
+
+	Aws::Glue::Model::PartitionInput input;
+	input.SetValues(ToAwsValues(partition.values));
+	input.SetStorageDescriptor(descriptor);
+	Aws::Glue::Model::CreatePartitionRequest request;
+	SetCatalogId(request, catalog);
+	request.SetDatabaseName(database_name);
+	request.SetTableName(table_name);
+	request.SetPartitionInput(input);
+	auto outcome = client->CreatePartition(request);
+	if (!outcome.IsSuccess()) {
+		if (IsAlreadyExists(outcome)) {
+			if (if_not_exists) {
+				return false;
+			}
+			throw CatalogException("Partition [%s] already exists in Glue table '%s.%s'",
+			                       PartitionValuesToString(partition.values), database_name, table_name);
+		}
+		ThrowGlueError(outcome, StringUtil::Format("CreatePartition '%s.%s' [%s]", database_name, table_name,
+		                                           PartitionValuesToString(partition.values)));
+	}
+	return true;
+}
+
+bool GlueAPI::DeletePartition(ClientContext &context, GlueCatalog &catalog, const string &database_name,
+                              const string &table_name, const vector<string> &values) {
+	GlueHttpClientContextScope http_scope(context);
+	auto client = GetClient(context, catalog);
+	Aws::Glue::Model::DeletePartitionRequest request;
+	SetCatalogId(request, catalog);
+	request.SetDatabaseName(database_name);
+	request.SetTableName(table_name);
+	request.SetPartitionValues(ToAwsValues(values));
+	auto outcome = client->DeletePartition(request);
+	if (!outcome.IsSuccess()) {
+		if (IsEntityNotFound(outcome)) {
+			return false;
+		}
+		ThrowGlueError(outcome, StringUtil::Format("DeletePartition '%s.%s' [%s]", database_name, table_name,
+		                                           PartitionValuesToString(values)));
+	}
+	return true;
+}
+
+void GlueAPI::RenamePartition(ClientContext &context, GlueCatalog &catalog, const string &database_name,
+                              const string &table_name, const vector<string> &values,
+                              const vector<string> &new_values) {
+	GlueHttpClientContextScope http_scope(context);
+	auto client = GetClient(context, catalog);
+
+	// the partition to rename, with everything it carries (location, SerDe, parameters)
+	Aws::Glue::Model::GetPartitionRequest get_request;
+	SetCatalogId(get_request, catalog);
+	get_request.SetDatabaseName(database_name);
+	get_request.SetTableName(table_name);
+	get_request.SetPartitionValues(ToAwsValues(values));
+	auto get_outcome = client->GetPartition(get_request);
+	if (!get_outcome.IsSuccess()) {
+		if (IsEntityNotFound(get_outcome)) {
+			throw CatalogException("Partition [%s] does not exist in Glue table '%s.%s'",
+			                       PartitionValuesToString(values), database_name, table_name);
+		}
+		ThrowGlueError(get_outcome, StringUtil::Format("GetPartition '%s.%s' [%s]", database_name, table_name,
+		                                               PartitionValuesToString(values)));
+	}
+	auto &partition = get_outcome.GetResult().GetPartition();
+
+	// the new values must be free
+	Aws::Glue::Model::GetPartitionRequest check_request;
+	SetCatalogId(check_request, catalog);
+	check_request.SetDatabaseName(database_name);
+	check_request.SetTableName(table_name);
+	check_request.SetPartitionValues(ToAwsValues(new_values));
+	auto check_outcome = client->GetPartition(check_request);
+	if (check_outcome.IsSuccess()) {
+		throw CatalogException("Partition [%s] already exists in Glue table '%s.%s'",
+		                       PartitionValuesToString(new_values), database_name, table_name);
+	}
+	if (!IsEntityNotFound(check_outcome)) {
+		ThrowGlueError(check_outcome, StringUtil::Format("GetPartition '%s.%s' [%s]", database_name, table_name,
+		                                                 PartitionValuesToString(new_values)));
+	}
+
+	Aws::Glue::Model::PartitionInput input;
+	input.SetValues(ToAwsValues(new_values));
+	input.SetStorageDescriptor(partition.GetStorageDescriptor());
+	input.SetParameters(partition.GetParameters());
+	Aws::Glue::Model::UpdatePartitionRequest request;
+	SetCatalogId(request, catalog);
+	request.SetDatabaseName(database_name);
+	request.SetTableName(table_name);
+	request.SetPartitionValueList(ToAwsValues(values));
+	request.SetPartitionInput(input);
+	auto outcome = client->UpdatePartition(request);
+	if (!outcome.IsSuccess()) {
+		ThrowGlueError(outcome, StringUtil::Format("UpdatePartition '%s.%s' [%s] -> [%s]", database_name, table_name,
+		                                           PartitionValuesToString(values),
+		                                           PartitionValuesToString(new_values)));
 	}
 }
 
