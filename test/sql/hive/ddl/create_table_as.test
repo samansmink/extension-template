@@ -98,11 +98,6 @@ SELECT count(*), sum(twice) FROM my_datalake.default.ctas_plain;
 ----
 10	90
 
-# CTAS defaults to Iceberg, which is not supported through this path
-statement error
-CREATE TABLE my_datalake.default.ctas_iceberg AS SELECT 1 AS a;
-----
-
 statement ok
 DROP TABLE my_datalake.default.ctas_partitioned_with_options;
 

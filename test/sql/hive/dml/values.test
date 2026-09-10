@@ -1,0 +1,98 @@
+# name: test/sql/hive/dml/values.test
+# description: VALUES, following the examples in the Athena VALUES documentation
+# group: [dml]
+
+require httpfs
+
+require aws
+
+require glue
+
+statement ok
+CREATE SECRET (
+  TYPE S3,
+  PROVIDER credential_chain,
+  REGION 'eu-central-1',
+  PROFILE 'personal'
+);
+
+statement ok
+attach '984506134640' as my_datalake (
+    TYPE glue
+);
+
+statement ok
+DROP TABLE IF EXISTS my_datalake.default.dml_customers;
+
+# a table with one column and three rows
+query I
+VALUES (1), (2), (3);
+----
+1
+2
+3
+
+# Athena also accepts the rows without parentheses, DuckDB does not
+statement error
+VALUES 1, 2, 3;
+----
+
+# a table with two columns and three rows
+query II
+VALUES
+    (1, 'a'),
+    (2, 'b'),
+    (3, 'c');
+----
+1	a
+2	b
+3	c
+
+# a table with the columns id and name
+query II
+SELECT * FROM (
+    VALUES
+        (1, 'a'),
+        (2, 'b'),
+        (3, 'c')
+) AS t (id, name);
+----
+1	a
+2	b
+3	c
+
+# create a Hive table in Glue from the inline table
+statement ok
+CREATE TABLE my_datalake.default.dml_customers AS
+SELECT * FROM (
+    VALUES
+        (1, 'a'),
+        (2, 'b'),
+        (3, 'c')
+) AS t (id, name);
+
+query II
+SELECT column_name, data_type FROM duckdb_columns() WHERE database_name = 'my_datalake' AND table_name = 'dml_customers' ORDER BY column_index;
+----
+id	INTEGER
+name	VARCHAR
+
+query II
+SELECT * FROM my_datalake.default.dml_customers ORDER BY id;
+----
+1	a
+2	b
+3	c
+
+# the inline table as the source of an INSERT
+statement ok
+INSERT INTO my_datalake.default.dml_customers
+SELECT * FROM (VALUES (4, 'd'), (5, 'e')) AS t (id, name);
+
+query II
+SELECT count(*), max(name) FROM my_datalake.default.dml_customers;
+----
+5	e
+
+statement ok
+DROP TABLE my_datalake.default.dml_customers;
