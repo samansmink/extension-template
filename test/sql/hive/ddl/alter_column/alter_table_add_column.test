@@ -1,6 +1,6 @@
-# name: test/sql/hive/ddl/alter_table_add_column.test
+# name: test/sql/hive/ddl/alter_column/alter_table_add_column.test
 # description: ALTER TABLE ADD COLUMN on a Hive table registered in Glue
-# group: [ddl]
+# group: [alter_column]
 
 require httpfs
 

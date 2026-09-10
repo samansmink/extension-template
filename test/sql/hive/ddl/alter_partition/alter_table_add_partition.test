@@ -1,8 +1,9 @@
-# name: test/sql/hive/ddl/partition/alter_table_add_partition.test
+# name: test/sql/hive/ddl/alter_partition/alter_table_add_partition.test
 # description: ALTER TABLE ADD [IF NOT EXISTS] PARTITION (...) [LOCATION ...] for Hive tables in Glue, following the
+# group: [alter_partition]
+
 #              examples in the Athena ALTER TABLE ADD PARTITION documentation. DuckDB has no ADD PARTITION syntax, the
 #              statement is glue_add_partition(table, partition_spec, location := ..., if_not_exists := ...)
-# group: [partition]
 
 require httpfs
 

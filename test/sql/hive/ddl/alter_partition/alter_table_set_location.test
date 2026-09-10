@@ -1,8 +1,9 @@
-# name: test/sql/hive/ddl/partition/alter_table_set_location.test
+# name: test/sql/hive/ddl/alter_partition/alter_table_set_location.test
 # description: ALTER TABLE [PARTITION (...)] SET LOCATION for Hive tables in Glue, following the examples in the
+# group: [alter_partition]
+
 #              Athena ALTER TABLE SET LOCATION documentation. DuckDB has no SET LOCATION syntax, the statements are
 #              glue_set_partition_location(table, partition_spec, location) and glue_set_table_location(table, location)
-# group: [partition]
 
 require httpfs
 

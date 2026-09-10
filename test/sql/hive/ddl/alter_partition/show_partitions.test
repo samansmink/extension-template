@@ -1,8 +1,9 @@
-# name: test/sql/hive/ddl/partition/show_partitions.test
+# name: test/sql/hive/ddl/alter_partition/show_partitions.test
 # description: SHOW PARTITIONS and "table$partitions" for Hive tables in Glue, following the examples in the Athena
+# group: [alter_partition]
+
 #              SHOW PARTITIONS documentation. DuckDB has neither syntax, the table function is glue_partitions(table)
 #              with one typed column per partition key plus the partition location
-# group: [partition]
 
 require httpfs
 

@@ -1,8 +1,9 @@
-# name: test/sql/hive/ddl/partition/alter_table_drop_partition.test
+# name: test/sql/hive/ddl/alter_partition/alter_table_drop_partition.test
 # description: ALTER TABLE DROP [IF EXISTS] PARTITION (...) for Hive tables in Glue, following the examples in the
+# group: [alter_partition]
+
 #              Athena ALTER TABLE DROP PARTITION documentation. DuckDB has no DROP PARTITION syntax, the statement is
 #              glue_drop_partition(table, partition_spec, if_exists := ...)
-# group: [partition]
 
 require httpfs
 
