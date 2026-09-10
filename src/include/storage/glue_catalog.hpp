@@ -18,6 +18,7 @@ class GlueClient;
 } // namespace Aws
 
 namespace duckdb {
+class GlueTable;
 
 class GlueCatalog : public Catalog {
 public:
@@ -47,7 +48,7 @@ public:
 		return false;
 	}
 	optional<Identifier> GetDefaultSchema() const override;
-	//! Allow CREATE TABLE ... WITH (type = 'ICEBERG' | 'HIVE', location = '...'); the options themselves are
+	//! Allow CREATE TABLE ... PARTITIONED BY (...) WITH (location = '...', <property> = '...'); the options are
 	//! validated in GlueSchemaEntry::CreateTable
 	ErrorData SupportsCreateTable(BoundCreateTableInfo &info) override;
 
@@ -68,8 +69,6 @@ public:
 	                                    PhysicalOperator &plan) override;
 	PhysicalOperator &PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op,
 	                             PhysicalOperator &plan) override;
-	PhysicalOperator &PlanDeleteOperation(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op,
-	                                      PhysicalOperator &plan);
 	PhysicalOperator &PlanUpdate(ClientContext &context, PhysicalPlanGenerator &planner, LogicalUpdate &op,
 	                             PhysicalOperator &plan) override;
 	PhysicalOperator &PlanMergeInto(ClientContext &context, PhysicalPlanGenerator &planner, LogicalMergeInto &op,
@@ -80,13 +79,6 @@ public:
 	DatabaseSize GetDatabaseSize(ClientContext &context) override;
 	bool InMemory() override;
 	string GetDBPath() override;
-	void OnDetach(ClientContext &context) override;
-
-	//! Iceberg tables are read and written through the iceberg extension. For that, GlueAttach::Attach attaches this
-	//! Glue catalog a second time (hidden) as an Iceberg catalog on Glue's Iceberg REST endpoint; the Glue entries
-	//! proxy scans and DML to the entries of that child catalog.
-	void SetIcebergDatabase(shared_ptr<AttachedDatabase> database);
-	Catalog &GetIcebergCatalog();
 
 public:
 	AccessMode access_mode;
@@ -98,16 +90,11 @@ public:
 	std::shared_ptr<Aws::Glue::GlueClient> glue_client;
 
 private:
-	//! The catalog that plans DML on 'table': the child Iceberg catalog for Iceberg tables, the table's own child
-	//! Delta catalog for Delta tables. Throws for other table types.
-	Catalog &GetCatalogForDML(ClientContext &context, TableCatalogEntry &table);
+	//! Throw unless 'table' is a Hive table, the only kind that can be written
+	static GlueTable &GetHiveTableForDML(TableCatalogEntry &table, const char *statement);
 
 private:
 	GlueSchemaSet schemas;
-	//! The hidden child Iceberg catalog (see SetIcebergDatabase)
-	//! This is a hack for now to allow Iceberg DML. What happens is anytime DML is detected, we defer
-	//! to the Iceberg catalog to do planning, execution, and committing.
-	shared_ptr<AttachedDatabase> iceberg_database;
 };
 
 } // namespace duckdb

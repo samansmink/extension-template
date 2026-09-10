@@ -6,8 +6,6 @@ require httpfs
 
 require aws
 
-require iceberg
-
 require glue
 
 statement ok

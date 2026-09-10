@@ -9,12 +9,8 @@
 namespace duckdb {
 struct CreateTableInfo;
 
-enum class GlueCreateTableType { ICEBERG, HIVE };
-
 //! Options accepted in CREATE TABLE ... WITH (...) for Glue tables
 struct GlueCreateTableOptions {
-	//! New tables default to the Iceberg format
-	GlueCreateTableType type = GlueCreateTableType::ICEBERG;
 	//! Optional explicit S3 location of the table
 	string location;
 	//! Every other option is stored as a table parameter in Glue

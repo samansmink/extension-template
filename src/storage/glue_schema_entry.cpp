@@ -62,13 +62,9 @@ GlueCreateTableOptions GlueSchemaEntry::ParseCreateTableOptions(ClientContext &c
 		auto string_value = value.DefaultCastAs(LogicalType::VARCHAR).GetValue<string>();
 
 		if (StringUtil::CIEquals(key, "type")) {
-			auto type = StringUtil::Upper(string_value);
-			if (type == "ICEBERG") {
-				result.type = GlueCreateTableType::ICEBERG;
-			} else if (type == "HIVE") {
-				result.type = GlueCreateTableType::HIVE;
-			} else {
-				throw BinderException("Unknown Glue table type '%s' for option 'type', expected 'ICEBERG' or 'HIVE'",
+			// only Hive (Glue native) tables can be created
+			if (StringUtil::Upper(string_value) != "HIVE") {
+				throw BinderException("Unknown Glue table type '%s' for option 'type', only 'HIVE' is supported",
 				                      string_value);
 			}
 		} else if (StringUtil::CIEquals(key, "location")) {
@@ -106,10 +102,6 @@ optional_ptr<CatalogEntry> GlueSchemaEntry::CreateTable(CatalogTransaction trans
 		throw NotImplementedException("Constraints are not supported when creating tables in a Glue catalog");
 	}
 	auto options = ParseCreateTableOptions(context, base);
-	if (!base.partition_keys.empty() && options.type != GlueCreateTableType::HIVE) {
-		throw NotImplementedException("PARTITIONED BY is only supported for Hive tables (WITH (type = 'HIVE')) in a "
-		                              "Glue catalog for now");
-	}
 	// Hive partitions are columns: PARTITIONED BY must name columns of the table, which become the PartitionKeys
 	// (in the given order) and are stored in the directory names rather than in the data files
 	vector<string> partition_columns;
@@ -169,16 +161,9 @@ optional_ptr<CatalogEntry> GlueSchemaEntry::CreateTable(CatalogTransaction trans
 	if (table.columns.empty()) {
 		throw BinderException("Table '%s' needs at least one column that is not a partition column", table_name);
 	}
-	switch (options.type) {
-	case GlueCreateTableType::ICEBERG:
-		GlueAPI::CreateIcebergTable(context, glue_catalog, table);
-		break;
-	case GlueCreateTableType::HIVE:
-		GlueAPI::CreateHiveTable(context, glue_catalog, table);
-		break;
-	}
+	GlueAPI::CreateHiveTable(context, glue_catalog, table);
 
-	// re-fetch so the entry carries the parameters (e.g. the Iceberg metadata location) Glue assigned
+	// re-fetch so the entry reflects what Glue stored
 	GlueTableInfo created;
 	if (!GlueAPI::GetTable(context, glue_catalog, database_info.name, table_name, created)) {
 		throw CatalogException("Glue table \"%s.%s\" was created but could not be fetched afterwards",

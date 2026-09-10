@@ -438,52 +438,6 @@ void GlueAPI::DeleteDatabase(ClientContext &context, GlueCatalog &catalog, const
 	}
 }
 
-void GlueAPI::CreateIcebergTable(ClientContext &context, GlueCatalog &catalog, const GlueTableInfo &table) {
-	if (table.location.empty()) {
-		throw InvalidInputException("Can not create Iceberg table '%s.%s' without a location", table.database_name,
-		                            table.name);
-	}
-	GlueHttpClientContextScope http_scope(context);
-	auto client = GetClient(context, catalog);
-
-	Aws::Glue::Model::StorageDescriptor storage_descriptor;
-	storage_descriptor.SetLocation(table.location);
-	storage_descriptor.SetColumns(ToAwsColumns(table.columns));
-
-	Aws::Glue::Model::TableInput table_input;
-	table_input.SetName(table.name);
-	table_input.SetTableType("EXTERNAL_TABLE");
-	table_input.SetStorageDescriptor(storage_descriptor);
-	if (!table.partition_keys.empty()) {
-		table_input.SetPartitionKeys(ToAwsColumns(table.partition_keys));
-	}
-	if (!table.parameters.empty()) {
-		table_input.SetParameters(ToAwsMap(table.parameters));
-	}
-
-	// Let Glue create the Iceberg metadata (format version 2) at the table location
-	Aws::Glue::Model::IcebergInput iceberg_input;
-	iceberg_input.SetMetadataOperation(Aws::Glue::Model::MetadataOperation::CREATE);
-	iceberg_input.SetVersion("2");
-	Aws::Glue::Model::OpenTableFormatInput open_table_format_input;
-	open_table_format_input.SetIcebergInput(iceberg_input);
-
-	Aws::Glue::Model::CreateTableRequest request;
-	SetCatalogId(request, catalog);
-	request.SetDatabaseName(table.database_name);
-	request.SetTableInput(table_input);
-	request.SetOpenTableFormatInput(open_table_format_input);
-	auto outcome = client->CreateTable(request);
-	if (!outcome.IsSuccess()) {
-		if (IsAlreadyExists(outcome)) {
-			throw CatalogException("Table with name \"%s\" already exists in Glue database \"%s\"", table.name,
-			                       table.database_name);
-		}
-		ThrowGlueError(outcome, StringUtil::Format("CreateTable '%s.%s' (location '%s')", table.database_name,
-		                                           table.name, table.location));
-	}
-}
-
 void GlueAPI::CreateHiveTable(ClientContext &context, GlueCatalog &catalog, const GlueTableInfo &table) {
 	if (table.location.empty()) {
 		throw InvalidInputException("Can not create Hive table '%s.%s' without a location", table.database_name,

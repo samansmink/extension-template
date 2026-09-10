@@ -24,20 +24,13 @@ public:
 	optional_ptr<CatalogEntry> CreateEntry(unique_ptr<GlueTable> entry);
 	void RemoveEntry(const string &name);
 	void ClearEntries();
-	//! Detach the hidden child catalogs of the loaded tables (on DETACH of the Glue catalog)
-	void DetachChildren(ClientContext &context);
 
-	//! Build a table catalog entry from a Glue table definition, using the (lossy) Glue column definitions
+	//! Build a table catalog entry from a Glue table definition
 	unique_ptr<GlueTable> CreateTableEntry(const GlueTableInfo &table);
 
 private:
 	void LoadEntries(ClientContext &context);
 	static void SetTableTypeTag(GlueTable &entry);
-	//! For open table formats the Glue column definitions are lossy (e.g. Iceberg 'timestamptz' is listed as
-	//! 'timestamp'). Before an entry is used to plan a query, rebuild it with the columns of the table format's own
-	//! schema (the child Iceberg catalog's entry). Entries produced by a listing (Scan) keep the Glue columns to
-	//! avoid a round trip per table.
-	GlueTable &ResolveEntry(ClientContext &context, GlueTable &entry);
 
 private:
 	GlueSchemaEntry &schema;

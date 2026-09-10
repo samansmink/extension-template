@@ -12,7 +12,6 @@
 #include "duckdb/planner/parsed_data/bound_create_table_info.hpp"
 #include "duckdb/storage/database_size.hpp"
 
-#include "duckdb/main/database_manager.hpp"
 #include "duckdb/planner/operator/logical_delete.hpp"
 #include "duckdb/planner/operator/logical_insert.hpp"
 #include "duckdb/planner/operator/logical_merge_into.hpp"
@@ -173,44 +172,14 @@ optional_ptr<SchemaCatalogEntry> GlueCatalog::LookupSchema(CatalogTransaction tr
 	return &entry->Cast<SchemaCatalogEntry>();
 }
 
-//===--------------------------------------------------------------------===//
-// Child Iceberg catalog
-//===--------------------------------------------------------------------===//
-void GlueCatalog::SetIcebergDatabase(shared_ptr<AttachedDatabase> database) {
-	D_ASSERT(!iceberg_database);
-	iceberg_database = std::move(database);
-}
-
-Catalog &GlueCatalog::GetIcebergCatalog() {
-	if (!iceberg_database) {
-		throw InternalException("Glue catalog '%s' has no child Iceberg catalog attached",
-		                        GetName().GetIdentifierName());
-	}
-	return iceberg_database->GetCatalog();
-}
-
-void GlueCatalog::OnDetach(ClientContext &context) {
-	// per-table child Delta catalogs
-	schemas.DetachChildren(context);
-	if (!iceberg_database) {
-		return;
-	}
-	auto name = iceberg_database->GetCatalog().GetName();
-	iceberg_database.reset();
-	DatabaseManager::Get(context).DetachDatabase(context, name, OnEntryNotFound::RETURN_NULL);
-}
-
-Catalog &GlueCatalog::GetCatalogForDML(ClientContext &context, TableCatalogEntry &table) {
+GlueTable &GlueCatalog::GetHiveTableForDML(TableCatalogEntry &table, const char *statement) {
 	auto &glue_table = table.Cast<GlueTable>();
-	switch (glue_table.table_info.GetFormat()) {
-	case GlueTableFormat::ICEBERG:
-		return GetIcebergCatalog();
-	case GlueTableFormat::DELTA:
-		return glue_table.GetDeltaCatalog(context);
-	default:
-		throw NotImplementedException("Writing to Glue table '%s' with type %s is not supported",
-		                              table.name.GetIdentifierName(), glue_table.table_info.GetFormatName());
+	if (glue_table.table_info.GetFormat() != GlueTableFormat::HIVE) {
+		throw NotImplementedException("%s on Glue table '%s' with type %s is not supported, only Hive tables can be "
+		                              "written",
+		                              statement, table.name.GetIdentifierName(), glue_table.table_info.GetFormatName());
 	}
+	return glue_table;
 }
 
 //===--------------------------------------------------------------------===//
@@ -218,46 +187,28 @@ Catalog &GlueCatalog::GetCatalogForDML(ClientContext &context, TableCatalogEntry
 //===--------------------------------------------------------------------===//
 PhysicalOperator &GlueCatalog::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner, LogicalInsert &op,
                                           optional_ptr<PhysicalOperator> plan) {
-	auto &glue_table = op.table.Cast<GlueTable>();
-	if (glue_table.table_info.GetFormat() == GlueTableFormat::HIVE) {
-		return GlueHiveInsert::PlanInsert(context, planner, op, glue_table, plan);
-	}
-	auto &child_catalog = GetCatalogForDML(context, op.table);
-	return child_catalog.PlanInsert(context, planner, op, plan);
+	auto &glue_table = GetHiveTableForDML(op.table, "INSERT");
+	return GlueHiveInsert::PlanInsert(context, planner, op, glue_table, plan);
 }
 
 PhysicalOperator &GlueCatalog::PlanCreateTableAs(ClientContext &context, PhysicalPlanGenerator &planner,
                                                  LogicalCreateTable &op, PhysicalOperator &plan) {
-	auto &base = op.info->Base().Cast<CreateTableInfo>();
-	auto options = GlueSchemaEntry::ParseCreateTableOptions(context, base);
-	if (options.type != GlueCreateTableType::HIVE) {
-		throw NotImplementedException(
-		    "CREATE TABLE AS is only supported for Hive tables (WITH (type = 'HIVE')) in a Glue catalog");
-	}
 	return GlueHiveInsert::PlanCreateTableAs(context, planner, op, plan);
 }
 
 PhysicalOperator &GlueCatalog::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op,
                                           PhysicalOperator &plan) {
-	return PlanDeleteOperation(context, planner, op, plan);
-}
-
-PhysicalOperator &GlueCatalog::PlanDeleteOperation(ClientContext &context, PhysicalPlanGenerator &planner,
-                                                   LogicalDelete &op, PhysicalOperator &plan) {
-	auto &iceberg_catalog = GetCatalogForDML(context, op.table);
-	return iceberg_catalog.PlanDelete(context, planner, op, plan);
+	throw NotImplementedException("DELETE is not supported for Glue tables");
 }
 
 PhysicalOperator &GlueCatalog::PlanUpdate(ClientContext &context, PhysicalPlanGenerator &planner, LogicalUpdate &op,
                                           PhysicalOperator &plan) {
-	auto &iceberg_catalog = GetCatalogForDML(context, op.table);
-	return iceberg_catalog.PlanUpdate(context, planner, op, plan);
+	throw NotImplementedException("UPDATE is not supported for Glue tables");
 }
 
 PhysicalOperator &GlueCatalog::PlanMergeInto(ClientContext &context, PhysicalPlanGenerator &planner,
                                              LogicalMergeInto &op, PhysicalOperator &plan) {
-	auto &iceberg_catalog = GetCatalogForDML(context, op.table);
-	return iceberg_catalog.PlanMergeInto(context, planner, op, plan);
+	throw NotImplementedException("MERGE INTO is not supported for Glue tables");
 }
 
 unique_ptr<LogicalOperator> GlueCatalog::BindCreateIndex(Binder &binder, CreateStatement &stmt,
