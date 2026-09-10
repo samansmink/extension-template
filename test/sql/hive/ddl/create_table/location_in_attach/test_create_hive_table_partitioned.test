@@ -46,7 +46,7 @@ SELECT location = '{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/hive_table_partition
 ----
 true
 
-query I
+query II
 select partition_keys[1].name, partition_keys[1].type from glue_get_table_response('my_datalake.default.hive_table_partitioned');
 ----
 int_col	int
