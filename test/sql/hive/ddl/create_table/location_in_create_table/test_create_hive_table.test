@@ -1,12 +1,14 @@
-# name: test/sql/hive/test_create_hive_table.test
+# name: test/sql/hive/ddl/create_table/location_in_create_table/test_create_hive_table.test
 # description: test creating a hive table
-# group: [hive]
+# group: [location_in_create_table]
 
 require httpfs
 
 require aws
 
 require glue
+
+require-env DEFAULT_S3_LOCATION
 
 statement ok
 CREATE SECRET (
@@ -30,12 +32,18 @@ DROP TABLE IF EXISTS my_datalake.default.hive_table;
 
 statement ok
 CREATE TABLE IF NOT EXISTS my_datalake.default.hive_table
-(int_col integer, variant_col VARIANT, timestamp_col TIMESTAMP) WITH (type = 'HIVE');
+(int_col integer, variant_col VARIANT, timestamp_col TIMESTAMP) WITH (type = 'HIVE', location = '{DEFAULT_S3_LOCATION}/{TEST_DIR}/hive_table');
 
 query I
 select distinct table_name from information_schema.columns where table_name = 'hive_table';
 ----
 hive_table
+
+# the table location in Glue
+query I
+SELECT location = '{DEFAULT_S3_LOCATION}/{TEST_DIR}/hive_table' FROM glue_get_table_response('my_datalake.default.hive_table');
+----
+true
 
 mode skip
 

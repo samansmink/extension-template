@@ -8,6 +8,8 @@ require aws
 
 require glue
 
+require-env DEFAULT_S3_LOCATION
+
 statement ok
 CREATE SECRET (
   TYPE S3,
@@ -18,7 +20,8 @@ CREATE SECRET (
 
 statement ok
 attach '984506134640' as my_datalake (
-    TYPE glue
+    TYPE glue,
+    DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 
 statement ok
@@ -192,7 +195,8 @@ SELECT id, city FROM my_datalake.default.dml_cities_by_state WHERE state = 'MI' 
 # the partitions were registered in Glue: a fresh attach sees them
 statement ok
 attach '984506134640' as verify_datalake (
-    TYPE glue
+    TYPE glue,
+    DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 
 query II

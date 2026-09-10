@@ -8,6 +8,8 @@ require aws
 
 require glue
 
+require-env DEFAULT_S3_LOCATION
+
 statement ok
 CREATE SECRET (
   TYPE S3,
@@ -18,7 +20,8 @@ CREATE SECRET (
 
 statement ok
 attach '984506134640' as my_datalake (
-    TYPE glue
+    TYPE glue,
+    DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 
 statement ok

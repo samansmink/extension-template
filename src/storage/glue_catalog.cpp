@@ -140,16 +140,28 @@ void GlueCatalog::DropSchema(ClientContext &context, DropInfo &info) {
 }
 
 string GlueCatalog::GetDatabaseLocation(const string &database_name) const {
+	if (options.default_location.empty()) {
+		return string();
+	}
 	return options.default_location + "/" + database_name;
 }
 
 string GlueCatalog::GetTableLocation(const GlueDatabaseInfo &database, const string &table_name) const {
+	// DEFAULT_LOCATION on ATTACH wins over the LocationUri of the Glue database, so that everything a session creates
+	// without an explicit location lands under one prefix
+	if (!options.default_location.empty()) {
+		return GetDatabaseLocation(database.name) + "/" + table_name;
+	}
 	if (!database.location_uri.empty()) {
 		auto location = database.location_uri;
 		StringUtil::RTrim(location, "/");
 		return location + "/" + table_name;
 	}
-	return GetDatabaseLocation(database.name) + "/" + table_name;
+	throw InvalidConfigurationException(
+	    "No location for table \"%s\": Glue database \"%s\" has no LocationUri and the catalog was attached without "
+	    "DEFAULT_LOCATION. Provide one with CREATE TABLE ... WITH (location = 's3://...') or attach with "
+	    "DEFAULT_LOCATION",
+	    table_name, database.name);
 }
 
 void GlueCatalog::ScanSchemas(ClientContext &context, std::function<void(SchemaCatalogEntry &)> callback) {

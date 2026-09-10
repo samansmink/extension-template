@@ -1,12 +1,14 @@
-# name: test/sql/hive/test_create_hive_table.test
+# name: test/sql/hive/ddl/create_table/location_in_attach/test_create_hive_table_partitioned.test
 # description: test creating a hive table
-# group: [hive]
+# group: [location_in_attach]
 
 require httpfs
 
 require aws
 
 require glue
+
+require-env DEFAULT_S3_LOCATION
 
 statement ok
 CREATE SECRET (
@@ -18,7 +20,8 @@ CREATE SECRET (
 
 statement ok
 attach '984506134640' as my_datalake (
-    TYPE glue
+    TYPE glue,
+    DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 
 statement ok
@@ -36,6 +39,12 @@ query I
 select distinct table_name from information_schema.columns where table_name = 'hive_table_partitioned';
 ----
 hive_table_partitioned
+
+# the table location in Glue
+query I
+SELECT location = '{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/hive_table_partitioned' FROM glue_get_table_response('my_datalake.default.hive_table_partitioned');
+----
+true
 
 query I
 select partition_keys[1].name, partition_keys[1].type from glue_get_table_response('my_datalake.default.hive_table_partitioned');

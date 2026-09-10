@@ -17,7 +17,7 @@ Attach options:
 |--------------------|-----------------------------------------------------------------------------|
 | `SECRET`           | name of the s3/aws secret to take credentials from (default: default secret) |
 | `REGION`           | AWS region of the catalog (default: region of the secret)                    |
-| `DEFAULT_LOCATION` | S3 prefix for new databases and for tables in databases without a LocationUri (default `s3://simple-s3-glue-database/glue-database-root`) |
+| `DEFAULT_LOCATION` | optional S3 prefix for new databases and for tables created without an explicit location (takes precedence over the Glue database LocationUri) |
 | `DEFAULT_SCHEMA`   | Glue database to use as the default schema                                   |
 
 ## Reading
@@ -34,9 +34,11 @@ the difference otherwise.
 
 ## Writing
 
-- `CREATE SCHEMA` creates a Glue database at `<DEFAULT_LOCATION>/<schema>`.
+- `CREATE SCHEMA` creates a Glue database with LocationUri `<DEFAULT_LOCATION>/<schema>`, or without a LocationUri
+  when the catalog was attached without `DEFAULT_LOCATION`.
 - `CREATE TABLE ... [PARTITIONED BY (col, ...)] [WITH (location = '...', <property> = '...')]` creates a parquet
-  Hive table at `<database LocationUri>/<table>`. Partition keys must be plain column names; they become Glue
+  Hive table at `location`, else `<DEFAULT_LOCATION>/<database>/<table>`, else `<database LocationUri>/<table>`;
+  without any of these the statement fails. Partition keys must be plain column names; they become Glue
   PartitionKeys and are listed last in the table's columns. Unknown `WITH` keys are stored as Glue table parameters.
 - `INSERT INTO` and `CREATE TABLE ... AS` write parquet files into the table location (one file per partition
   touched, partition columns are not stored in the files) and register new partition directories in Glue with

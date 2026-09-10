@@ -8,6 +8,8 @@ require aws
 
 require glue
 
+require-env DEFAULT_S3_LOCATION
+
 statement ok
 CREATE SECRET (
   TYPE S3,
@@ -18,7 +20,8 @@ CREATE SECRET (
 
 statement ok
 attach '984506134640' as my_datalake (
-    TYPE glue
+    TYPE glue,
+    DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 
 statement ok
@@ -52,7 +55,8 @@ ALTER TABLE my_datalake.default.ddl_drop_column DROP COLUMN id, DROP COLUMN scor
 # a second attach sees the change, it is stored in Glue and not only in the cached entry
 statement ok
 attach '984506134640' as my_datalake_2 (
-    TYPE glue
+    TYPE glue,
+    DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 
 query II

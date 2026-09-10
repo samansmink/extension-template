@@ -1,12 +1,14 @@
-# name: test/sql/hive/ddl/create_table_as.test
+# name: test/sql/hive/ddl/create_table/location_in_attach/create_table_as.test
 # description: CREATE TABLE AS for Hive tables registered in Glue, partitioned and with table properties
-# group: [ddl]
+# group: [location_in_attach]
 
 require httpfs
 
 require aws
 
 require glue
+
+require-env DEFAULT_S3_LOCATION
 
 statement ok
 CREATE SECRET (
@@ -18,7 +20,8 @@ CREATE SECRET (
 
 statement ok
 attach '984506134640' as my_datalake (
-    TYPE glue
+    TYPE glue,
+    DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 
 statement ok
@@ -72,6 +75,12 @@ query I
 SELECT parameters['foo'] FROM glue_get_table_response('my_datalake.default.ctas_partitioned_with_options');
 ----
 buzz
+
+# the table location in Glue
+query I
+SELECT location = '{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/ctas_partitioned_with_options' FROM glue_get_table_response('my_datalake.default.ctas_partitioned_with_options');
+----
+true
 
 # appending into existing and new partitions (the table's column order puts the partition keys last)
 statement ok

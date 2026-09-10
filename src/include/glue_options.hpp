@@ -19,8 +19,9 @@ struct GlueAttachOptions {
 	string region;
 	//! Name of the DuckDB (s3 / aws) secret to take credentials from, empty selects the default secret
 	string secret_name;
-	//! Default S3 location used for new databases, and for tables created in databases that have no LocationUri
-	string default_location = "s3://simple-s3-glue-database/glue-database-root";
+	//! Optional S3 prefix for new databases, and for tables created without a location in databases that have no
+	//! LocationUri. Empty means: databases are created without a LocationUri and tables must be given a location
+	string default_location;
 	//! Optional default schema
 	Identifier default_schema;
 };
