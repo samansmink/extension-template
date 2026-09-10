@@ -5,10 +5,10 @@
 #include "duckdb/common/multi_file/multi_file_data.hpp"
 #include "duckdb/common/multi_file/multi_file_list.hpp"
 #include "duckdb/common/multi_file/multi_file_states.hpp"
+#include "duckdb/common/case_insensitive_map.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/unordered_set.hpp"
 #include "duckdb/execution/expression_executor.hpp"
-#include "duckdb/parser/expression/constant_expression.hpp"
 #include "duckdb/planner/expression/bound_columnref_expression.hpp"
 #include "duckdb/planner/expression/bound_constant_expression.hpp"
 #include "duckdb/planner/expression_iterator.hpp"
@@ -76,12 +76,8 @@ bool HiveMultiFileReader::Bind(MultiFileOptions &options, MultiFileList &files, 
 	names = info.names;
 	bind_data.schema.clear();
 	for (idx_t i = 0; i < info.names.size(); i++) {
-		auto column = MultiFileColumnDefinition::CreateFromNameAndType(info.names[i], info.types[i]);
-		if (info.GetPartitionKeyIndex(info.names[i].GetIdentifierName()) == DConstants::INVALID_INDEX) {
-			// a data column that a file does not have (added to the table after the file was written) reads as NULL
-			column.default_expression = make_uniq<ConstantExpression>(Value(info.types[i]));
-		}
-		bind_data.schema.push_back(std::move(column));
+		// columns a file does not have are filled in per file in FinalizeBind
+		bind_data.schema.push_back(MultiFileColumnDefinition::CreateFromNameAndType(info.names[i], info.types[i]));
 	}
 	bind_data.mapping = MultiFileColumnMappingMode::BY_NAME;
 	return true;
@@ -211,24 +207,35 @@ void HiveMultiFileReader::FinalizeBind(MultiFileReaderData &reader_data, const M
 	MultiFileReader::FinalizeBind(reader_data, file_options, options, global_columns, global_column_ids, context,
 	                              global_state);
 	auto &info = ScanInfo();
-	if (info.partition_keys.empty()) {
-		return;
+	// the columns this file has, by name
+	case_insensitive_set_t local_names;
+	for (auto &local_column : reader_data.reader->GetColumns()) {
+		local_names.insert(local_column.name.GetIdentifierName());
 	}
-	// the partition columns of this file are constants: the values Glue stores for the file's partition
-	auto &partition = info.GetPartitionOfFile(reader_data.reader->GetFileName());
+	optional_ptr<const GluePartitionInfo> partition;
+	if (!info.partition_keys.empty()) {
+		partition = &info.GetPartitionOfFile(reader_data.reader->GetFileName());
+	}
 	for (idx_t i = 0; i < global_column_ids.size(); i++) {
 		auto &column_id = global_column_ids[i];
 		if (column_id.IsVirtualColumn()) {
 			continue;
 		}
 		auto &global_column = global_columns[column_id.GetPrimaryIndex()];
-		auto key_index = info.GetPartitionKeyIndex(global_column.name.GetIdentifierName());
-		if (key_index == DConstants::INVALID_INDEX) {
+		auto &name = global_column.name.GetIdentifierName();
+		auto key_index = info.GetPartitionKeyIndex(name);
+		if (key_index != DConstants::INVALID_INDEX) {
+			// a partition column is a constant: the value Glue stores for the file's partition
+			auto &key = info.partition_keys[key_index];
+			auto value = HivePartitioning::GetValue(context, key, partition->values[key_index], global_column.type);
+			reader_data.constant_map.Add(MultiFileGlobalIndex(i), std::move(value));
 			continue;
 		}
-		auto &key = info.partition_keys[key_index];
-		auto value = HivePartitioning::GetValue(context, key, partition.values[key_index], global_column.type);
-		reader_data.constant_map.Add(MultiFileGlobalIndex(i), std::move(value));
+		if (local_names.find(name) == local_names.end()) {
+			// a data column the file does not have (added to the table after the file was written) reads as NULL
+			auto &type = column_id.HasType() ? column_id.GetScanType() : global_column.type;
+			reader_data.constant_map.Add(MultiFileGlobalIndex(i), Value(type));
+		}
 	}
 }
 

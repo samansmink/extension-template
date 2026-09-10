@@ -20,8 +20,12 @@
 namespace duckdb {
 
 GlueTable::GlueTable(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info, GlueTableInfo table_info_p)
-    : TableCatalogEntry(catalog, schema, info), table_info(std::move(table_info_p)) {
+    : TableCatalogEntry(catalog, schema, info), table_info(std::move(table_info_p)), columns(info.columns.Copy()) {
 	this->internal = false;
+}
+
+const ColumnList &GlueTable::GetColumns() const {
+	return columns;
 }
 
 unique_ptr<BaseStatistics> GlueTable::GetStatistics(ClientContext &context, column_t column_id) {

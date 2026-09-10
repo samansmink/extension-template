@@ -1,6 +1,7 @@
 #pragma once
 
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
+#include "duckdb/parser/column_list.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
 
 #include "glue_api.hpp"
@@ -15,6 +16,7 @@ public:
 	GlueTable(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info, GlueTableInfo table_info);
 
 public:
+	const ColumnList &GetColumns() const override;
 	unique_ptr<BaseStatistics> GetStatistics(ClientContext &context, column_t column_id) override;
 	TableFunction GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data) override;
 	TableStorageInfo GetStorageInfo(ClientContext &context) override;
@@ -31,6 +33,10 @@ private:
 public:
 	//! The table definition as returned by Glue when the entry was created
 	GlueTableInfo table_info;
+
+private:
+	//! The columns of the table: data columns first, partition keys last
+	ColumnList columns;
 };
 
 } // namespace duckdb
