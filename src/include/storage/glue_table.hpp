@@ -23,13 +23,10 @@ public:
 	GlueTableInfo RefreshTableInfo(ClientContext &context) const;
 
 private:
-	//! Scan a Hive table with read_parquet over the table location, partition values from the directory names
+	//! Scan a Hive table with read_parquet over the files of the partitions Glue lists (or the table location for an
+	//! unpartitioned table), using the HiveMultiFileReader for Glue's schema and partition values
 	TableFunction GetHiveScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data,
 	                                  const GlueTableInfo &latest_info);
-	//! Throw if the columns the scan produces differ from the columns of this entry (which the query was planned
-	//! with)
-	void VerifyScanColumns(const GlueTableInfo &latest_info, const vector<Identifier> &scan_names,
-	                       const vector<LogicalType> &scan_types) const;
 
 public:
 	//! The table definition as returned by Glue when the entry was created

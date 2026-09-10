@@ -15,6 +15,7 @@
 #include "glue_types.hpp"
 #include "storage/glue_catalog.hpp"
 #include "storage/glue_schema_entry.hpp"
+#include "storage/hive_multi_file_reader.hpp"
 
 namespace duckdb {
 
@@ -58,6 +59,23 @@ TableFunction GlueTable::GetScanFunction(ClientContext &context, unique_ptr<Func
 //===--------------------------------------------------------------------===//
 // Hive scan
 //===--------------------------------------------------------------------===//
+//! The data files directly below 'location'. Files whose name starts with '_' or '.' (_SUCCESS, .crc, ...) are not
+//! data, as in Hive.
+static void ListDataFiles(FileSystem &fs, const string &location, vector<OpenFileInfo> &files) {
+	auto directory = location;
+	StringUtil::RTrim(directory, "/");
+	if (directory.empty()) {
+		return;
+	}
+	for (auto &file : fs.GlobFiles(directory + "/*", FileGlobOptions::ALLOW_EMPTY)) {
+		auto name = file.path.substr(file.path.find_last_of('/') + 1);
+		if (name.empty() || name[0] == '_' || name[0] == '.') {
+			continue;
+		}
+		files.push_back(file);
+	}
+}
+
 TableFunction GlueTable::GetHiveScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data,
                                              const GlueTableInfo &latest_info) {
 	// The SerDe decides the file format. Only parquet is supported so far.
@@ -67,33 +85,55 @@ TableFunction GlueTable::GetHiveScanFunction(ClientContext &context, unique_ptr<
 		                              "parquet tables (ParquetHiveSerDe) can be read",
 		                              latest_info.database_name, latest_info.name, latest_info.serde_library);
 	}
-	if (latest_info.location.empty()) {
-		throw InvalidInputException("Hive table '%s.%s' has no location in Glue", latest_info.database_name,
-		                            latest_info.name);
+
+	// The scan produces the columns this entry was planned with: data columns first, partition keys last
+	auto scan_info = make_shared_ptr<HiveScanInfo>();
+	scan_info->database_name = latest_info.database_name;
+	scan_info->table_name = latest_info.name;
+	for (auto &column : GetColumns().Logical()) {
+		scan_info->names.push_back(column.Name());
+		scan_info->types.push_back(column.Type());
+	}
+	for (auto &key : table_info.partition_keys) {
+		scan_info->partition_keys.push_back(key.name);
 	}
 
-	// read_parquet('<location>/<key=value>/.../*', hive_partitioning = true, hive_types = {...}).
-	// Assumes the table location only holds the table's own data, laid out as <key=value> directories.
-	auto location = latest_info.location;
-	StringUtil::RTrim(location, "/");
-	string glob = location;
-	child_list_t<Value> hive_types;
-	for (auto &key : latest_info.partition_keys) {
-		glob += "/*";
-		hive_types.emplace_back(key.name, Value(GlueTypes::ToLogicalType(key.type).ToString()));
-	}
-	glob += "/*";
-
-	// List the data files ourselves: a table without files (just created) scans as empty rather than failing,
-	// and read_parquet does not have to glob a second time
+	// The data files: those of every partition Glue lists (each partition has its own location, which need not be
+	// <key>=<value> below the table location), or those below the table location for an unpartitioned table
 	auto &fs = FileSystem::GetFileSystem(context);
-	auto files = fs.GlobFiles(glob, FileGlobOptions::ALLOW_EMPTY);
-	if (files.empty()) {
-		return MakeGlueEmptyScan(bind_data);
+	auto &glue_catalog = catalog.Cast<GlueCatalog>();
+	if (scan_info->partition_keys.empty()) {
+		if (latest_info.location.empty()) {
+			throw InvalidInputException("Hive table '%s.%s' has no location in Glue", latest_info.database_name,
+			                            latest_info.name);
+		}
+		ListDataFiles(fs, latest_info.location, scan_info->files);
+	} else {
+		scan_info->partitions =
+		    GlueAPI::GetPartitions(context, glue_catalog, latest_info.database_name, latest_info.name);
+		for (idx_t partition_index = 0; partition_index < scan_info->partitions.size(); partition_index++) {
+			auto &partition = scan_info->partitions[partition_index];
+			if (partition.values.size() != scan_info->partition_keys.size()) {
+				throw InvalidInputException("Glue partition [%s] of Hive table '%s.%s' has %d values but the table "
+				                            "has %d partition keys",
+				                            StringUtil::Join(partition.values, ", "), latest_info.database_name,
+				                            latest_info.name, partition.values.size(),
+				                            scan_info->partition_keys.size());
+			}
+			vector<OpenFileInfo> partition_files;
+			ListDataFiles(fs, partition.location, partition_files);
+			for (auto &file : partition_files) {
+				if (scan_info->file_partitions.find(file.path) != scan_info->file_partitions.end()) {
+					// two partitions share a location, the file belongs to the first
+					continue;
+				}
+				scan_info->file_partitions.emplace(file.path, partition_index);
+				scan_info->files.push_back(std::move(file));
+			}
+		}
 	}
-	vector<Value> file_paths;
-	for (auto &file : files) {
-		file_paths.emplace_back(file.path);
+	if (scan_info->files.empty()) {
+		return MakeGlueEmptyScan(bind_data);
 	}
 
 	auto &db = DatabaseInstance::GetDatabase(context);
@@ -108,14 +148,15 @@ TableFunction GlueTable::GetHiveScanFunction(ClientContext &context, unique_ptr<
 	auto &function_set = catalog_entry->Cast<TableFunctionCatalogEntry>();
 	auto scan_function =
 	    *function_set.functions.GetFunctionByArguments(context, {LogicalType::LIST(LogicalType::VARCHAR)});
+	// read_parquet with the HiveMultiFileReader: Glue's schema and Glue's partition values
+	scan_function.get_multi_file_reader = HiveMultiFileReader::CreateInstance;
+	scan_function.function_info = scan_info;
 
-	named_parameter_map_t param_map;
-	if (!hive_types.empty()) {
-		param_map["hive_partitioning"] = Value::BOOLEAN(true);
-		// the partition types come from Glue, do not sniff them from the values
-		param_map["hive_types"] = Value::STRUCT(std::move(hive_types));
-		param_map["hive_types_autocast"] = Value::BOOLEAN(false);
+	vector<Value> file_paths;
+	for (auto &file : scan_info->files) {
+		file_paths.emplace_back(file.path);
 	}
+	named_parameter_map_t param_map;
 	vector<LogicalType> return_types;
 	vector<Identifier> names;
 	TableFunctionRef empty_ref;
@@ -123,38 +164,7 @@ TableFunction GlueTable::GetHiveScanFunction(ClientContext &context, unique_ptr<
 	TableFunctionBindInput bind_input(inputs, param_map, return_types, names, nullptr, nullptr, scan_function,
 	                                  empty_ref);
 	bind_data = scan_function.bind(context, bind_input, return_types, names);
-
-	VerifyScanColumns(latest_info, names, return_types);
 	return scan_function;
-}
-
-void GlueTable::VerifyScanColumns(const GlueTableInfo &latest_info, const vector<Identifier> &scan_names,
-                                  const vector<LogicalType> &scan_types) const {
-	auto &table_columns = GetColumns();
-	if (table_columns.PhysicalColumnCount() != scan_names.size()) {
-		throw BinderException("Glue lists %d columns for table '%s.%s' but its data files have %d columns, the "
-		                      "Glue table definition is out of sync with the data",
-		                      table_columns.PhysicalColumnCount(), latest_info.database_name, latest_info.name,
-		                      scan_names.size());
-	}
-	idx_t i = 0;
-	for (auto &column : table_columns.Physical()) {
-		auto &scan_name = scan_names[i].GetIdentifierName();
-		auto &scan_type = scan_types[i];
-		i++;
-		if (!StringUtil::CIEquals(column.Name().GetIdentifierName(), scan_name)) {
-			throw BinderException("Column %d of Glue table '%s.%s' is named '%s' in Glue but '%s' in the data "
-			                      "files, the Glue table definition is out of sync with the data",
-			                      i, latest_info.database_name, latest_info.name, column.Name().GetIdentifierName(),
-			                      scan_name);
-		}
-		if (column.Type() != scan_type) {
-			throw BinderException("Column '%s' of Glue table '%s.%s' has type %s in Glue but %s in the data files, "
-			                      "the Glue table definition is out of sync with the data",
-			                      scan_name, latest_info.database_name, latest_info.name, column.Type().ToString(),
-			                      scan_type.ToString());
-		}
-	}
 }
 
 } // namespace duckdb

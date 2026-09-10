@@ -27,6 +27,7 @@
 #include <aws/glue/model/DeleteTableRequest.h>
 #include <aws/glue/model/UpdateTableRequest.h>
 #include <aws/glue/model/BatchCreatePartitionRequest.h>
+#include <aws/glue/model/GetPartitionsRequest.h>
 #include <aws/glue/model/SerDeInfo.h>
 
 #include <sys/stat.h>
@@ -555,6 +556,38 @@ void GlueAPI::UpdateTableColumns(ClientContext &context, GlueCatalog &catalog, c
 	if (!update_outcome.IsSuccess()) {
 		ThrowGlueError(update_outcome, StringUtil::Format("UpdateTable '%s.%s'", database_name, table_name));
 	}
+}
+
+vector<GluePartitionInfo> GlueAPI::GetPartitions(ClientContext &context, GlueCatalog &catalog,
+                                                 const string &database_name, const string &table_name) {
+	GlueHttpClientContextScope http_scope(context);
+	auto client = GetClient(context, catalog);
+	vector<GluePartitionInfo> result;
+	Aws::String next_token;
+	do {
+		Aws::Glue::Model::GetPartitionsRequest request;
+		SetCatalogId(request, catalog);
+		request.SetDatabaseName(database_name);
+		request.SetTableName(table_name);
+		if (!next_token.empty()) {
+			request.SetNextToken(next_token);
+		}
+		auto outcome = client->GetPartitions(request);
+		if (!outcome.IsSuccess()) {
+			ThrowGlueError(outcome, StringUtil::Format("GetPartitions '%s.%s'", database_name, table_name));
+		}
+		auto &partitions = outcome.GetResult();
+		for (auto &partition : partitions.GetPartitions()) {
+			GluePartitionInfo info;
+			for (auto &value : partition.GetValues()) {
+				info.values.push_back(ToStdString(value));
+			}
+			info.location = ToStdString(partition.GetStorageDescriptor().GetLocation());
+			result.push_back(std::move(info));
+		}
+		next_token = partitions.GetNextToken();
+	} while (!next_token.empty());
+	return result;
 }
 
 void GlueAPI::BatchCreatePartitions(ClientContext &context, GlueCatalog &catalog, const string &database_name,

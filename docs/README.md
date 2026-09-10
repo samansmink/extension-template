@@ -22,15 +22,20 @@ Attach options:
 
 ## Reading
 
-Hive tables stored as parquet (ParquetHiveSerDe) are scanned with `read_parquet` over the table location, one
-directory level per partition key. Partition values come from the `<key>=<value>` directory names and partition
-types from Glue's partition keys, so they are not sniffed from the values. The location is assumed to hold only the
-table's own data. A table without data files (just created) scans as empty. Other SerDes (CSV, JSON, ORC, Avro) are
-not supported yet.
+Hive tables stored as parquet (ParquetHiveSerDe) are scanned with `read_parquet` through a custom
+`MultiFileReader` (`HiveMultiFileReader`) that follows Athena's read semantics:
 
-Columns are taken from the Glue definition, data columns first and partition keys last, in `PARTITIONED BY` order.
-A scan verifies that the parquet files agree with those columns (names and types) and fails with a message naming
-the difference otherwise.
+- The data files are those directly below the location of every partition Glue lists (`GetPartitions`), or below
+  the table location for an unpartitioned table. Partition locations need not follow the `<key>=<value>` layout.
+  Files named `_*` or `.*` are skipped. A table without data files (just created) scans as empty.
+- Partition column values are the values Glue stores for the partition, not the directory names, typed as Glue's
+  partition keys. Filters on partition columns prune whole partitions before any file is opened (EXPLAIN shows
+  `Scanning Files`).
+- The schema is Glue's, data columns first and partition keys last, in `PARTITIONED BY` order. Files are matched
+  by column name: a column a file does not have (added after the file was written) reads as NULL, a column with
+  a different type in the file is cast, and file columns Glue does not list are ignored.
+
+Other SerDes (CSV, JSON, ORC, Avro) are not supported yet.
 
 ## Writing
 
