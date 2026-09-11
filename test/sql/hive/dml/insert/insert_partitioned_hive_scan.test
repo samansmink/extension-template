@@ -1,0 +1,175 @@
+# name: test/sql/hive/dml/insert/insert_partitioned_hive_scan.test
+# description: INSERT into a partitioned Hive table, partitions at custom locations, then the same read through the
+#              Glue catalog and through hive_scan() without any catalog
+# group: [insert]
+
+require httpfs
+
+require aws
+
+require glue
+
+require-env DEFAULT_S3_LOCATION
+
+statement ok
+CREATE SECRET (
+  TYPE S3,
+  PROVIDER credential_chain,
+  REGION 'eu-central-1',
+  PROFILE 'personal'
+);
+
+statement ok
+attach '984506134640' as my_datalake (
+    TYPE glue,
+    DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
+);
+
+statement ok
+DROP TABLE IF EXISTS my_datalake.default.ins_orders;
+
+statement ok
+CREATE TABLE my_datalake.default.ins_orders (id INTEGER, amount DOUBLE, dt VARCHAR, country VARCHAR) PARTITIONED BY (dt, country);
+
+# INSERT writes <key>=<value> directories below the table location and registers them
+statement ok
+INSERT INTO my_datalake.default.ins_orders VALUES
+    (1, 10.0, '2016-05-14', 'IN'),
+    (2, 20.0, '2016-05-14', 'US'),
+    (3, 30.0, '2016-05-15', 'IN');
+
+# a second INSERT into an existing partition appends a file
+statement ok
+INSERT INTO my_datalake.default.ins_orders VALUES (6, 60.0, '2016-05-14', 'IN');
+
+# partitions whose data lives at custom locations, outside the table location and not laid out as <key>=<value>
+statement ok
+COPY (SELECT 4 AS id, 40.0 AS amount) TO '{DEFAULT_S3_LOCATION}/{TEST_DIR}/custom/india_may_16/data.parquet';
+
+statement ok
+COPY (SELECT 5 AS id, 50.0 AS amount) TO '{DEFAULT_S3_LOCATION}/{TEST_DIR}/custom/us_may_16/data.parquet';
+
+statement ok
+CALL glue_add_partition('my_datalake.default.ins_orders', {dt: '2016-05-16', country: 'IN'}, location := '{DEFAULT_S3_LOCATION}/{TEST_DIR}/custom/india_may_16');
+
+statement ok
+CALL glue_add_partition('my_datalake.default.ins_orders', {dt: '2016-05-16', country: 'US'}, location := '{DEFAULT_S3_LOCATION}/{TEST_DIR}/custom/us_may_16');
+
+query III
+SELECT dt, country, location FROM glue_partitions('my_datalake.default.ins_orders') ORDER BY dt, country;
+----
+2016-05-14	IN	{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/ins_orders/dt=2016-05-14/country=IN
+2016-05-14	US	{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/ins_orders/dt=2016-05-14/country=US
+2016-05-15	IN	{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/ins_orders/dt=2016-05-15/country=IN
+2016-05-16	IN	{DEFAULT_S3_LOCATION}/{TEST_DIR}/custom/india_may_16
+2016-05-16	US	{DEFAULT_S3_LOCATION}/{TEST_DIR}/custom/us_may_16
+
+#---------------------------------------------------------------------------
+# the read through the Glue catalog
+#---------------------------------------------------------------------------
+query IIII
+SELECT id, amount, dt, country FROM my_datalake.default.ins_orders ORDER BY id;
+----
+1	10.0	2016-05-14	IN
+2	20.0	2016-05-14	US
+3	30.0	2016-05-15	IN
+4	40.0	2016-05-16	IN
+5	50.0	2016-05-16	US
+6	60.0	2016-05-14	IN
+
+query I
+SELECT id FROM my_datalake.default.ins_orders WHERE dt = '2016-05-16' ORDER BY id;
+----
+4
+5
+
+#---------------------------------------------------------------------------
+# the same read with hive_scan(): no catalog attached, the schema and the partitions are given
+#---------------------------------------------------------------------------
+statement ok
+DETACH my_datalake;
+
+query IIII
+SELECT id, amount, dt, country FROM hive_scan('{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/ins_orders',
+    schema := {id: 'INTEGER', amount: 'DOUBLE', dt: 'VARCHAR', country: 'VARCHAR'},
+    partitions := [
+        {dt: '2016-05-14', country: 'IN', location: NULL},
+        {dt: '2016-05-14', country: 'US', location: NULL},
+        {dt: '2016-05-15', country: 'IN', location: NULL},
+        {dt: '2016-05-16', country: 'IN', location: '{DEFAULT_S3_LOCATION}/{TEST_DIR}/custom/india_may_16'},
+        {dt: '2016-05-16', country: 'US', location: '{DEFAULT_S3_LOCATION}/{TEST_DIR}/custom/us_may_16'}
+    ])
+ORDER BY id;
+----
+1	10.0	2016-05-14	IN
+2	20.0	2016-05-14	US
+3	30.0	2016-05-15	IN
+4	40.0	2016-05-16	IN
+5	50.0	2016-05-16	US
+6	60.0	2016-05-14	IN
+
+# filters on partition columns prune partitions
+query I
+SELECT id FROM hive_scan('{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/ins_orders',
+    schema := {id: 'INTEGER', amount: 'DOUBLE', dt: 'VARCHAR', country: 'VARCHAR'},
+    partitions := [
+        {dt: '2016-05-14', country: 'IN', location: NULL},
+        {dt: '2016-05-16', country: 'IN', location: '{DEFAULT_S3_LOCATION}/{TEST_DIR}/custom/india_may_16'},
+        {dt: '2016-05-16', country: 'US', location: '{DEFAULT_S3_LOCATION}/{TEST_DIR}/custom/us_may_16'}
+    ])
+WHERE dt = '2016-05-16'
+ORDER BY id;
+----
+4
+5
+
+# only the partitions given are read
+query II
+SELECT count(*), sum(amount) FROM hive_scan('{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/ins_orders',
+    schema := {id: 'INTEGER', amount: 'DOUBLE', dt: 'VARCHAR', country: 'VARCHAR'},
+    partitions := [{dt: '2016-05-14', country: 'IN'}]);
+----
+2	70.0
+
+# the partition keys can be given explicitly, e.g. to fix their order
+query II
+SELECT dt, count(*) FROM hive_scan('{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/ins_orders',
+    schema := {id: 'INTEGER', amount: 'DOUBLE', dt: 'VARCHAR', country: 'VARCHAR'},
+    partition_keys := ['dt', 'country'],
+    partitions := [{country: 'US', dt: '2016-05-14'}, {country: 'IN', dt: '2016-05-15'}])
+GROUP BY dt ORDER BY dt;
+----
+2016-05-14	1
+2016-05-15	1
+
+# the schema is required
+statement error
+SELECT * FROM hive_scan('{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/ins_orders');
+----
+schema
+
+# every partition needs a value for every partition key
+statement error
+SELECT * FROM hive_scan('{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/ins_orders',
+    schema := {id: 'INTEGER', amount: 'DOUBLE', dt: 'VARCHAR', country: 'VARCHAR'},
+    partition_keys := ['dt', 'country'],
+    partitions := [{dt: '2016-05-14'}]);
+----
+no value for partition key
+
+# partition keys must be columns of the schema
+statement error
+SELECT * FROM hive_scan('{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/ins_orders',
+    schema := {id: 'INTEGER', amount: 'DOUBLE'},
+    partitions := [{dt: '2016-05-14', country: 'IN'}]);
+----
+not a column of the schema
+
+statement ok
+attach '984506134640' as my_datalake (
+    TYPE glue,
+    DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
+);
+
+statement ok
+DROP TABLE my_datalake.default.ins_orders;

@@ -12,6 +12,12 @@
 #include "duckdb/planner/expression/bound_columnref_expression.hpp"
 #include "duckdb/planner/expression/bound_constant_expression.hpp"
 #include "duckdb/planner/expression_iterator.hpp"
+#include "duckdb/catalog/catalog.hpp"
+#include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
+#include "duckdb/catalog/catalog_entry/table_function_catalog_entry.hpp"
+#include "duckdb/common/file_system.hpp"
+#include "duckdb/main/database.hpp"
+#include "duckdb/parser/tableref/table_function_ref.hpp"
 
 namespace duckdb {
 
@@ -36,30 +42,132 @@ const GluePartitionInfo &HiveScanInfo::GetPartitionOfFile(const string &path) co
 	return partitions[entry->second];
 }
 
+string HiveScanInfo::Describe() const {
+	if (database_name.empty()) {
+		return table_name;
+	}
+	return database_name + "." + table_name;
+}
+
+//! The data files directly below 'location'. Files whose name starts with '_' or '.' (_SUCCESS, .crc, ...) are not
+//! data, as in Hive.
+static void ListDataFiles(FileSystem &fs, const string &location, vector<OpenFileInfo> &files) {
+	auto directory = location;
+	StringUtil::RTrim(directory, "/");
+	if (directory.empty()) {
+		return;
+	}
+	for (auto &file : fs.GlobFiles(directory + "/*", FileGlobOptions::ALLOW_EMPTY)) {
+		auto name = file.path.substr(file.path.find_last_of('/') + 1);
+		if (name.empty() || name[0] == '_' || name[0] == '.') {
+			continue;
+		}
+		files.push_back(file);
+	}
+}
+
+void HiveScanInfo::CollectFiles(ClientContext &context) {
+	auto &fs = FileSystem::GetFileSystem(context);
+	files.clear();
+	file_partitions.clear();
+	if (partition_keys.empty()) {
+		if (root_location.empty()) {
+			throw InvalidInputException("Hive table '%s' has no location", Describe());
+		}
+		ListDataFiles(fs, root_location, files);
+		return;
+	}
+	// every partition has its own location, which need not be <key>=<value> below the root
+	for (idx_t partition_index = 0; partition_index < partitions.size(); partition_index++) {
+		auto &partition = partitions[partition_index];
+		if (partition.values.size() != partition_keys.size()) {
+			throw InvalidInputException("Partition [%s] of Hive table '%s' has %d values but the table has %d "
+			                            "partition keys",
+			                            StringUtil::Join(partition.values, ", "), Describe(), partition.values.size(),
+			                            partition_keys.size());
+		}
+		vector<OpenFileInfo> partition_files;
+		ListDataFiles(fs, partition.location, partition_files);
+		for (auto &file : partition_files) {
+			if (file_partitions.find(file.path) != file_partitions.end()) {
+				// two partitions share a location, the file belongs to the first
+				continue;
+			}
+			file_partitions.emplace(file.path, partition_index);
+			files.push_back(std::move(file));
+		}
+	}
+}
+
+//===--------------------------------------------------------------------===//
+// Binding
+//===--------------------------------------------------------------------===//
+TableFunction BindHiveScan(ClientContext &context, shared_ptr<HiveScanInfo> scan_info,
+                           unique_ptr<FunctionData> &bind_data) {
+	auto &db = DatabaseInstance::GetDatabase(context);
+	auto &system_catalog = Catalog::GetSystemCatalog(db);
+	auto data = CatalogTransaction::GetSystemTransaction(db);
+	auto &catalog_schema = system_catalog.GetSchema(data, Identifier::DefaultSchema());
+	auto catalog_entry = catalog_schema.GetEntry(data, CatalogType::TABLE_FUNCTION_ENTRY, "read_parquet");
+	if (!catalog_entry) {
+		throw MissingExtensionException("Reading Hive table '%s' requires the parquet extension", scan_info->Describe());
+	}
+	auto &function_set = catalog_entry->Cast<TableFunctionCatalogEntry>();
+	auto scan_function =
+	    *function_set.functions.GetFunctionByArguments(context, {LogicalType::LIST(LogicalType::VARCHAR)});
+	// read_parquet with the HiveMultiFileReader: the table's schema and partition values, not the files'
+	scan_function.get_multi_file_reader = HiveMultiFileReader::CreateInstance;
+	scan_function.function_info = scan_info;
+
+	vector<Value> file_paths;
+	for (auto &file : scan_info->files) {
+		file_paths.emplace_back(file.path);
+	}
+	named_parameter_map_t param_map;
+	vector<LogicalType> return_types;
+	vector<Identifier> names;
+	if (scan_info->files.empty()) {
+		// no data files (yet): with the schema given up front the multi-file bind accepts an empty file list and
+		// the scan produces no rows
+		return_types = scan_info->types;
+		names = scan_info->names;
+	}
+	TableFunctionRef empty_ref;
+	vector<Value> inputs = {Value::LIST(LogicalType::VARCHAR, std::move(file_paths))};
+	TableFunctionBindInput bind_input(inputs, param_map, return_types, names, nullptr, nullptr, scan_function,
+	                                  empty_ref);
+	bind_data = scan_function.bind(context, bind_input, return_types, names);
+	return scan_function;
+}
+
 //===--------------------------------------------------------------------===//
 // HiveMultiFileReader
 //===--------------------------------------------------------------------===//
-HiveMultiFileReader::HiveMultiFileReader(shared_ptr<TableFunctionInfo> function_info_p)
-    : function_info(std::move(function_info_p)) {
+HiveMultiFileReader::HiveMultiFileReader(shared_ptr<HiveScanInfo> scan_info_p) : scan_info(std::move(scan_info_p)) {
 }
 
 unique_ptr<MultiFileReader> HiveMultiFileReader::CreateInstance(const TableFunction &table) {
-	auto result = make_uniq<HiveMultiFileReader>(table.function_info);
+	shared_ptr<HiveScanInfo> info;
+	if (table.function_info) {
+		info = shared_ptr_cast<TableFunctionInfo, HiveScanInfo>(table.function_info);
+	}
+	auto result = make_uniq<HiveMultiFileReader>(std::move(info));
 	result->function_name = table.name;
 	return std::move(result);
 }
 
 unique_ptr<MultiFileReader> HiveMultiFileReader::Copy() const {
-	auto result = make_uniq<HiveMultiFileReader>(function_info);
+	auto result = make_uniq<HiveMultiFileReader>(scan_info);
 	result->function_name = function_name;
 	return std::move(result);
 }
 
 const HiveScanInfo &HiveMultiFileReader::ScanInfo() const {
-	if (!function_info) {
-		throw InternalException("HiveMultiFileReader used without a HiveScanInfo");
+	if (!scan_info) {
+		throw InternalException("HiveMultiFileReader used without a HiveScanInfo (a hive scan can not be restored "
+		                        "from a serialized plan)");
 	}
-	return function_info->Cast<HiveScanInfo>();
+	return *scan_info;
 }
 
 shared_ptr<MultiFileList> HiveMultiFileReader::CreateFileList(ClientContext &context, const vector<string> &paths,

@@ -22,8 +22,9 @@ TableFunction GetGlueDropPartitionFunction();
 //! changes the partition values and keeps the location
 TableFunction GetGlueRenamePartitionFunction();
 
-//! A scan that produces no rows, for tables without any data files (e.g. a freshly created Hive table). The
-//! columns come from the catalog entry, which is what the binder plans with; 'bind_data' is filled in.
-TableFunction MakeGlueEmptyScan(unique_ptr<FunctionData> &bind_data);
+//! hive_scan('s3://root', schema := {col: 'TYPE', ...}, partitions := [{key: value, ..., location: '...'}, ...],
+//! partition_keys := [...]): read a parquet Hive table without a catalog. The same scan as for a Glue Hive table,
+//! with the schema and the partitions (values and locations) given as arguments.
+TableFunction GetHiveScanFunction(DatabaseInstance &db);
 
 } // namespace duckdb
