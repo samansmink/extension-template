@@ -1,0 +1,116 @@
+# name: test/sql/hive_scan/hive_scan_formats.test
+# description: hive_scan() over local parquet, csv and json Hive layouts (no catalog, no cloud)
+# group: [hive_scan]
+
+require parquet
+
+require json
+
+require glue
+
+# partitioned data in every format: the partition column lives in the directory name, not in the files
+statement ok
+COPY (SELECT * FROM (VALUES (1, 10.5, '2016-05-14'), (2, 20.5, '2016-05-14'), (3, 30.5, '2016-05-15')) t(id, amount, dt))
+TO '{TEST_DIR}/fmt_parquet' (FORMAT parquet, PARTITION_BY (dt));
+
+statement ok
+COPY (SELECT * FROM (VALUES (1, 10.5, '2016-05-14'), (2, 20.5, '2016-05-14'), (3, 30.5, '2016-05-15')) t(id, amount, dt))
+TO '{TEST_DIR}/fmt_csv' (FORMAT csv, HEADER false, PARTITION_BY (dt));
+
+statement ok
+COPY (SELECT * FROM (VALUES (1, 10.5, '2016-05-14'), (2, 20.5, '2016-05-14'), (3, 30.5, '2016-05-15')) t(id, amount, dt))
+TO '{TEST_DIR}/fmt_json' (FORMAT json, PARTITION_BY (dt));
+
+# a partition at a custom location (the directory name means nothing)
+statement ok
+COPY (SELECT * FROM (VALUES (4, 40.5, 'x')) t(id, amount, junk))
+TO '{TEST_DIR}/fmt_custom_csv' (FORMAT csv, HEADER false, PARTITION_BY (junk));
+
+#---------------------------------------------------------------------------
+# parquet is the default format
+#---------------------------------------------------------------------------
+query III
+SELECT id, amount, dt FROM hive_scan('{TEST_DIR}/fmt_parquet',
+    schema := {id: 'INTEGER', amount: 'DOUBLE', dt: 'VARCHAR'},
+    partitions := [{dt: '2016-05-14'}, {dt: '2016-05-15'}])
+ORDER BY id;
+----
+1	10.5	2016-05-14
+2	20.5	2016-05-14
+3	30.5	2016-05-15
+
+query I
+SELECT count(*) FROM hive_scan('{TEST_DIR}/fmt_parquet', format := 'parquet',
+    schema := {id: 'INTEGER', amount: 'DOUBLE', dt: 'VARCHAR'},
+    partitions := [{dt: '2016-05-14'}, {dt: '2016-05-15'}]);
+----
+3
+
+#---------------------------------------------------------------------------
+# csv: the files carry no schema, the columns are given by position
+#---------------------------------------------------------------------------
+query III
+SELECT id, amount, dt FROM hive_scan('{TEST_DIR}/fmt_csv', format := 'csv',
+    schema := {id: 'INTEGER', amount: 'DOUBLE', dt: 'VARCHAR'},
+    partitions := [
+        {dt: '2016-05-14', location: NULL},
+        {dt: '2016-05-15', location: NULL},
+        {dt: '2016-05-16', location: '{TEST_DIR}/fmt_custom_csv/junk=x'}
+    ])
+ORDER BY id;
+----
+1	10.5	2016-05-14
+2	20.5	2016-05-14
+3	30.5	2016-05-15
+4	40.5	2016-05-16
+
+# filters on partition columns prune csv partitions too
+query I
+SELECT id FROM hive_scan('{TEST_DIR}/fmt_csv', format := 'csv',
+    schema := {id: 'INTEGER', amount: 'DOUBLE', dt: 'VARCHAR'},
+    partitions := [{dt: '2016-05-14'}, {dt: '2016-05-15'}])
+WHERE dt = '2016-05-15';
+----
+3
+
+# a header line and another delimiter
+statement ok
+COPY (SELECT * FROM (VALUES (7, 'seven', 'x'), (8, 'eight', 'x')) t(id, name, junk))
+TO '{TEST_DIR}/fmt_csv_header' (FORMAT csv, HEADER true, DELIMITER '|', PARTITION_BY (junk));
+
+query II
+SELECT id, name FROM hive_scan('{TEST_DIR}/fmt_csv_header/junk=x', format := 'csv', header := true, delim := '|',
+    schema := {id: 'INTEGER', name: 'VARCHAR'})
+ORDER BY id;
+----
+7	seven
+8	eight
+
+#---------------------------------------------------------------------------
+# json: one object per line, keys matched to the columns by name
+#---------------------------------------------------------------------------
+query III
+SELECT id, amount, dt FROM hive_scan('{TEST_DIR}/fmt_json', format := 'json',
+    schema := {id: 'INTEGER', amount: 'DOUBLE', dt: 'VARCHAR'},
+    partitions := [{dt: '2016-05-14'}, {dt: '2016-05-15'}])
+ORDER BY id;
+----
+1	10.5	2016-05-14
+2	20.5	2016-05-14
+3	30.5	2016-05-15
+
+# a column the files do not have reads as NULL
+query II
+SELECT id, note FROM hive_scan('{TEST_DIR}/fmt_json', format := 'json',
+    schema := {id: 'INTEGER', note: 'VARCHAR', dt: 'VARCHAR'},
+    partitions := [{dt: '2016-05-15'}]);
+----
+3	NULL
+
+#---------------------------------------------------------------------------
+# errors
+#---------------------------------------------------------------------------
+statement error
+SELECT * FROM hive_scan('{TEST_DIR}/fmt_parquet', format := 'orc', schema := {id: 'INTEGER'});
+----
+Unknown Hive file format
