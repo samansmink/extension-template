@@ -1,7 +1,8 @@
 # name: test/sql/hive/ddl/create_table/create_table_format.test
 # description: CREATE TABLE ... WITH (format = 'parquet' | 'csv' | 'json') for Hive tables in Glue: the SerDe Glue
-#              stores, INSERT writing files of that format and reads through Glue and through hive_scan()
 # group: [create_table]
+
+#              stores, INSERT writing files of that format and reads through Glue and through hive_scan()
 
 require httpfs
 

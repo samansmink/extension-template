@@ -1,7 +1,8 @@
 # name: test/sql/hive/dml/insert/insert_partitioned_hive_scan.test
 # description: INSERT into a partitioned Hive table, partitions at custom locations, then the same read through the
-#              Glue catalog and through hive_scan() without any catalog
 # group: [insert]
+
+#              Glue catalog and through hive_scan() without any catalog
 
 require httpfs
 

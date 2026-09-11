@@ -322,8 +322,7 @@ void GlueRenamePartitionScan(ClientContext &context, TableFunctionInput &data, D
 	auto &bind_data = data.bind_data->Cast<GluePartitionChangeBindData>();
 	auto &table = bind_data.target.table;
 	auto &catalog = *bind_data.target.catalog;
-	GlueAPI::RenamePartition(context, catalog, table.database_name, table.name, bind_data.values,
-	                         bind_data.new_values);
+	GlueAPI::RenamePartition(context, catalog, table.database_name, table.name, bind_data.values, bind_data.new_values);
 	GluePartitionInfo renamed;
 	string location;
 	if (GlueAPI::GetPartition(context, catalog, table.database_name, table.name, bind_data.new_values, renamed)) {

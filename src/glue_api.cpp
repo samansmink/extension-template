@@ -793,9 +793,9 @@ void GlueAPI::RenamePartition(ClientContext &context, GlueCatalog &catalog, cons
 	request.SetPartitionInput(input);
 	auto outcome = client->UpdatePartition(request);
 	if (!outcome.IsSuccess()) {
-		ThrowGlueError(outcome, StringUtil::Format("UpdatePartition '%s.%s' [%s] -> [%s]", database_name, table_name,
-		                                           PartitionValuesToString(values),
-		                                           PartitionValuesToString(new_values)));
+		ThrowGlueError(outcome,
+		               StringUtil::Format("UpdatePartition '%s.%s' [%s] -> [%s]", database_name, table_name,
+		                                  PartitionValuesToString(values), PartitionValuesToString(new_values)));
 	}
 }
 

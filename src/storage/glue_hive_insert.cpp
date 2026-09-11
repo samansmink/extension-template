@@ -125,8 +125,8 @@ PhysicalOperator &GlueHiveInsert::PlanWrite(ClientContext &context, PhysicalPlan
 			// the partition columns follow the json column
 			partition_columns[i] = 1 + i;
 		}
-		auto &projection =
-		    planner.Make<PhysicalProjection>(std::move(projected_types), std::move(select_list), op.estimated_cardinality);
+		auto &projection = planner.Make<PhysicalProjection>(std::move(projected_types), std::move(select_list),
+		                                                    op.estimated_cardinality);
 		projection.children.push_back(plan);
 		source = &projection;
 		copy_format = "csv";

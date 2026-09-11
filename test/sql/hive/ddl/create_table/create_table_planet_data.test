@@ -1,8 +1,9 @@
 # name: test/sql/hive/ddl/create_table/create_table_planet_data.test
 # description: the planet_data example of the Athena CREATE TABLE documentation. Athena creates it as a TSV table
+# group: [create_table]
+
 #              (ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t' STORED AS TEXTFILE); this extension only creates parquet
 #              tables, so the table is a parquet Hive table with the same columns
-# group: [create_table]
 
 require httpfs
 

@@ -1,8 +1,9 @@
 # name: test/sql/hive/ddl/create_table/create_table_options.test
 # description: the clauses of the Athena CREATE TABLE synopsis other than the column list: IF NOT EXISTS,
+# group: [create_table]
+
 #              [db_name.]table_name, PARTITIONED BY, LOCATION, TBLPROPERTIES, and the ones without a DuckDB
 #              counterpart (EXTERNAL, COMMENT, CLUSTERED BY, ROW FORMAT, STORED AS, WITH SERDEPROPERTIES)
-# group: [create_table]
 
 require httpfs
 

@@ -1,7 +1,8 @@
 # name: test/sql/hive/ddl/create_table/create_table_column_types.test
 # description: every data_type the Athena CREATE TABLE documentation lists, as DuckDB types, and the Hive type each
-#              one is registered with in Glue
 # group: [create_table]
+
+#              one is registered with in Glue
 
 require httpfs
 
