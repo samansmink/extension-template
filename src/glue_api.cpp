@@ -35,6 +35,7 @@
 #include <aws/glue/model/SerDeInfo.h>
 
 #include <sys/stat.h>
+#include <functional>
 
 namespace duckdb {
 
@@ -587,11 +588,11 @@ void GlueAPI::CreateHiveTable(ClientContext &context, GlueCatalog &catalog, cons
 	}
 }
 
-void GlueAPI::UpdateTableColumns(ClientContext &context, GlueCatalog &catalog, const string &database_name,
-                                 const string &table_name, const vector<GlueColumn> &columns) {
-	GlueHttpClientContextScope http_scope(context);
-	auto client = GetClient(context, catalog);
-
+//! UpdateTable replaces the whole definition: fetch the current one, let 'modify' change the TableInput built from
+//! it, and send it back
+static void UpdateGlueTable(const std::shared_ptr<Aws::Glue::GlueClient> &client, GlueCatalog &catalog,
+                            const string &database_name, const string &table_name,
+                            const std::function<void(Aws::Glue::Model::TableInput &)> &modify) {
 	// UpdateTable replaces the whole definition, so start from the current one and change only the columns
 	Aws::Glue::Model::GetTableRequest get_request;
 	SetCatalogId(get_request, catalog);
@@ -642,9 +643,8 @@ void GlueAPI::UpdateTableColumns(ClientContext &context, GlueCatalog &catalog, c
 	if (table.TargetTableHasBeenSet()) {
 		table_input.SetTargetTable(table.GetTargetTable());
 	}
-	auto storage_descriptor = table.GetStorageDescriptor();
-	storage_descriptor.SetColumns(ToAwsColumns(columns));
-	table_input.SetStorageDescriptor(storage_descriptor);
+	table_input.SetStorageDescriptor(table.GetStorageDescriptor());
+	modify(table_input);
 
 	Aws::Glue::Model::UpdateTableRequest update_request;
 	SetCatalogId(update_request, catalog);
@@ -653,6 +653,66 @@ void GlueAPI::UpdateTableColumns(ClientContext &context, GlueCatalog &catalog, c
 	auto update_outcome = client->UpdateTable(update_request);
 	if (!update_outcome.IsSuccess()) {
 		ThrowGlueError(update_outcome, StringUtil::Format("UpdateTable '%s.%s'", database_name, table_name));
+	}
+}
+
+void GlueAPI::UpdateTableColumns(ClientContext &context, GlueCatalog &catalog, const string &database_name,
+                                 const string &table_name, const vector<GlueColumn> &columns) {
+	GlueHttpClientContextScope http_scope(context);
+	auto client = GetClient(context, catalog);
+	UpdateGlueTable(client, catalog, database_name, table_name, [&](Aws::Glue::Model::TableInput &table_input) {
+		auto storage_descriptor = table_input.GetStorageDescriptor();
+		storage_descriptor.SetColumns(ToAwsColumns(columns));
+		table_input.SetStorageDescriptor(storage_descriptor);
+	});
+}
+
+void GlueAPI::SetTableLocation(ClientContext &context, GlueCatalog &catalog, const string &database_name,
+                               const string &table_name, const string &location) {
+	GlueHttpClientContextScope http_scope(context);
+	auto client = GetClient(context, catalog);
+	UpdateGlueTable(client, catalog, database_name, table_name, [&](Aws::Glue::Model::TableInput &table_input) {
+		auto storage_descriptor = table_input.GetStorageDescriptor();
+		storage_descriptor.SetLocation(location);
+		table_input.SetStorageDescriptor(storage_descriptor);
+	});
+}
+
+void GlueAPI::SetPartitionLocation(ClientContext &context, GlueCatalog &catalog, const string &database_name,
+                                   const string &table_name, const vector<string> &values, const string &location) {
+	GlueHttpClientContextScope http_scope(context);
+	auto client = GetClient(context, catalog);
+	Aws::Glue::Model::GetPartitionRequest get_request;
+	SetCatalogId(get_request, catalog);
+	get_request.SetDatabaseName(database_name);
+	get_request.SetTableName(table_name);
+	get_request.SetPartitionValues(ToAwsValues(values));
+	auto get_outcome = client->GetPartition(get_request);
+	if (!get_outcome.IsSuccess()) {
+		if (IsEntityNotFound(get_outcome)) {
+			throw CatalogException("Partition [%s] does not exist in Glue table '%s.%s'",
+			                       PartitionValuesToString(values), database_name, table_name);
+		}
+		ThrowGlueError(get_outcome, StringUtil::Format("GetPartition '%s.%s' [%s]", database_name, table_name,
+		                                               PartitionValuesToString(values)));
+	}
+	auto &partition = get_outcome.GetResult().GetPartition();
+	auto storage_descriptor = partition.GetStorageDescriptor();
+	storage_descriptor.SetLocation(location);
+	Aws::Glue::Model::PartitionInput input;
+	input.SetValues(partition.GetValues());
+	input.SetStorageDescriptor(storage_descriptor);
+	input.SetParameters(partition.GetParameters());
+	Aws::Glue::Model::UpdatePartitionRequest request;
+	SetCatalogId(request, catalog);
+	request.SetDatabaseName(database_name);
+	request.SetTableName(table_name);
+	request.SetPartitionValueList(ToAwsValues(values));
+	request.SetPartitionInput(input);
+	auto outcome = client->UpdatePartition(request);
+	if (!outcome.IsSuccess()) {
+		ThrowGlueError(outcome, StringUtil::Format("UpdatePartition '%s.%s' [%s]", database_name, table_name,
+		                                           PartitionValuesToString(values)));
 	}
 }
 

@@ -45,7 +45,9 @@ static optional_ptr<CopyFunctionCatalogEntry> TryGetCopyFunction(DatabaseInstanc
 PhysicalOperator &GlueHiveInsert::PlanWrite(ClientContext &context, PhysicalPlanGenerator &planner, LogicalOperator &op,
                                             GlueTable &table, PhysicalOperator &plan, const vector<Identifier> &names,
                                             const vector<LogicalType> &types) {
-	auto &table_info = table.table_info;
+	// Ask Glue for the current definition: the location (and the format) may have changed since the entry was
+	// created, e.g. through ALTER TABLE ... SET LOCATION
+	auto table_info = table.RefreshTableInfo(context);
 	auto location = table_info.location;
 	StringUtil::RTrim(location, "/");
 

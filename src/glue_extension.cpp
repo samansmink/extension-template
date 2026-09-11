@@ -9,6 +9,7 @@
 
 #include "glue_attach.hpp"
 #include "glue_functions.hpp"
+#include "glue_grammar.hpp"
 #include "glue_http_client.hpp"
 #include "duckdb/main/extension_helper.hpp"
 
@@ -68,6 +69,11 @@ static void LoadInternal(ExtensionLoader &loader) {
 	loader.RegisterFunction(GetGlueAddPartitionFunction());
 	loader.RegisterFunction(GetGlueDropPartitionFunction());
 	loader.RegisterFunction(GetGlueRenamePartitionFunction());
+	loader.RegisterFunction(GetGlueSetPartitionLocationFunction());
+	loader.RegisterFunction(GetGlueSetTableLocationFunction());
+	loader.RegisterFunction(GetGlueAlterTableFunction());
+	// ALTER TABLE ... ADD / DROP PARTITION etc., switched on with SET active_grammar_extensions = ['glue_hive_ddl']
+	RegisterGlueGrammarExtension(instance);
 	loader.RegisterFunction(GetHiveScanFunction(instance));
 }
 
