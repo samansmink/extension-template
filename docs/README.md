@@ -35,17 +35,22 @@ Hive tables stored as parquet (ParquetHiveSerDe) are scanned with `read_parquet`
   by column name: a column a file does not have (added after the file was written) reads as NULL, a column with
   a different type in the file is cast, and file columns Glue does not list are ignored.
 
-Other SerDes (CSV, JSON, ORC, Avro) are not supported yet.
+The SerDe of the Glue table decides the reader: ParquetHiveSerDe reads with `read_parquet`, LazySimpleSerDe and
+OpenCSVSerde with `read_csv` (columns by position, no header unless `skip.header.line.count` is 1, delimiter
+from `field.delim` / `separatorChar`, `,` otherwise) and JsonSerDe with `read_json` (one object per line, keys by
+name). Other SerDes (ORC, Avro, ...) are not supported.
 
 ## Writing
 
 - `CREATE SCHEMA` creates a Glue database with LocationUri `<DEFAULT_LOCATION>/<schema>`, or without a LocationUri
   when the catalog was attached without `DEFAULT_LOCATION`.
-- `CREATE TABLE ... [PARTITIONED BY (col, ...)] [WITH (location = '...', <property> = '...')]` creates a parquet
+- `CREATE TABLE ... [PARTITIONED BY (col, ...)] [WITH (format = 'parquet' | 'csv' | 'json', location = '...',
+  <property> = '...')]` creates a parquet (default), csv (LazySimpleSerDe, `,` delimited, no header) or json
+  (JsonSerDe, one object per line)
   Hive table at `location`, else `<DEFAULT_LOCATION>/<database>/<table>`, else `<database LocationUri>/<table>`;
   without any of these the statement fails. Partition keys must be plain column names; they become Glue
   PartitionKeys and are listed last in the table's columns. Unknown `WITH` keys are stored as Glue table parameters.
-- `INSERT INTO` and `CREATE TABLE ... AS` write parquet files into the table location (one file per partition
+- `INSERT INTO` and `CREATE TABLE ... AS` write files in the table's format into the table location (one file per partition
   touched, partition columns are not stored in the files) and register new partition directories in Glue with
   BatchCreatePartition. Because the partition keys are the last columns of the table, `INSERT ... VALUES` without a
   column list must list them last. `CREATE TABLE ... AS` creates the Glue table before the query runs; if the query
@@ -75,6 +80,8 @@ SELECT * FROM hive_scan('s3://bucket/warehouse/orders',
 ```
 
 - `schema` (required): a struct of column name to DuckDB type name, data columns and partition columns.
+- `format`: `'parquet'` (default), `'csv'` or `'json'`. For csv, `header := true` and `delim := '|'` describe the
+  files; csv columns are matched by position, json keys by name.
 - `partitions`: one struct per partition with a value for every partition key and an optional `location`; without
   a location the partition lives at `<root>/<key>=<value>/...`. The partition keys are the struct fields other than
   `location`, in that order, unless `partition_keys := [...]` names them. Without `partitions` the table is

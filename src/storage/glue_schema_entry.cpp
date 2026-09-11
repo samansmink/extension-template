@@ -67,6 +67,8 @@ GlueCreateTableOptions GlueSchemaEntry::ParseCreateTableOptions(ClientContext &c
 				throw BinderException("Unknown Glue table type '%s' for option 'type', only 'HIVE' is supported",
 				                      string_value);
 			}
+		} else if (StringUtil::CIEquals(key, "format")) {
+			result.format = HiveFileFormatFromString(string_value);
 		} else if (StringUtil::CIEquals(key, "location")) {
 			result.location = string_value;
 			StringUtil::RTrim(result.location, "/");
@@ -141,6 +143,7 @@ optional_ptr<CatalogEntry> GlueSchemaEntry::CreateTable(CatalogTransaction trans
 	table.location =
 	    options.location.empty() ? glue_catalog.GetTableLocation(database_info, table_name) : options.location;
 	table.parameters = options.parameters;
+	table.file_format = options.format;
 	for (auto &column : base.columns.Physical()) {
 		if (is_partition_column(column.Name().GetIdentifierName())) {
 			continue;

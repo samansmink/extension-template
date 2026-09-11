@@ -17,9 +17,27 @@
 #include "duckdb/catalog/catalog_entry/table_function_catalog_entry.hpp"
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/main/database.hpp"
+#include "duckdb/main/extension_helper.hpp"
+#include "duckdb/execution/operator/csv_scanner/csv_file_scanner.hpp"
+#include "duckdb/execution/operator/csv_scanner/global_csv_state.hpp"
+#include "duckdb/function/table/read_csv.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
 
 namespace duckdb {
+
+//! The scan info of the hive scan being bound on this thread. The reader is created by the bound function's own bind
+//! (read_parquet, read_csv, read_json) through get_multi_file_reader, which only sees the TableFunction, and the
+//! function_info slot of the JSON reader is taken by its multi-file wrapper: so the scan info is handed over here.
+static thread_local shared_ptr<HiveScanInfo> *current_scan_info = nullptr;
+
+struct HiveScanInfoScope {
+	explicit HiveScanInfoScope(shared_ptr<HiveScanInfo> &info) {
+		current_scan_info = &info;
+	}
+	~HiveScanInfoScope() {
+		current_scan_info = nullptr;
+	}
+};
 
 //===--------------------------------------------------------------------===//
 // HiveScanInfo
@@ -102,28 +120,59 @@ void HiveScanInfo::CollectFiles(ClientContext &context) {
 //===--------------------------------------------------------------------===//
 // Binding
 //===--------------------------------------------------------------------===//
-TableFunction BindHiveScan(ClientContext &context, shared_ptr<HiveScanInfo> scan_info,
-                           unique_ptr<FunctionData> &bind_data) {
+static const TableFunction &GetListReadFunction(ClientContext &context, const string &function_name,
+                                                const HiveScanInfo &scan_info) {
 	auto &db = DatabaseInstance::GetDatabase(context);
 	auto &system_catalog = Catalog::GetSystemCatalog(db);
 	auto data = CatalogTransaction::GetSystemTransaction(db);
 	auto &catalog_schema = system_catalog.GetSchema(data, Identifier::DefaultSchema());
-	auto catalog_entry = catalog_schema.GetEntry(data, CatalogType::TABLE_FUNCTION_ENTRY, "read_parquet");
+	auto catalog_entry = catalog_schema.GetEntry(data, CatalogType::TABLE_FUNCTION_ENTRY, Identifier(function_name));
 	if (!catalog_entry) {
-		throw MissingExtensionException("Reading Hive table '%s' requires the parquet extension", scan_info->Describe());
+		throw MissingExtensionException("Reading Hive table '%s' requires %s, which is not available",
+		                                scan_info.Describe(), function_name);
 	}
 	auto &function_set = catalog_entry->Cast<TableFunctionCatalogEntry>();
-	auto scan_function =
-	    *function_set.functions.GetFunctionByArguments(context, {LogicalType::LIST(LogicalType::VARCHAR)});
-	// read_parquet with the HiveMultiFileReader: the table's schema and partition values, not the files'
+	return *function_set.functions.GetFunctionByArguments(context, {LogicalType::LIST(LogicalType::VARCHAR)});
+}
+
+TableFunction BindHiveScan(ClientContext &context, shared_ptr<HiveScanInfo> scan_info,
+                           unique_ptr<FunctionData> &bind_data) {
+	// the reader for the file format; the data columns (everything but the partition keys) are what the files hold
+	child_list_t<Value> data_columns;
+	for (idx_t i = 0; i < scan_info->names.size(); i++) {
+		if (scan_info->GetPartitionKeyIndex(scan_info->names[i].GetIdentifierName()) == DConstants::INVALID_INDEX) {
+			data_columns.emplace_back(scan_info->names[i], Value(scan_info->types[i].ToString()));
+		}
+	}
+	named_parameter_map_t param_map;
+	string function_name;
+	switch (scan_info->file_format) {
+	case HiveFileFormat::PARQUET:
+		function_name = "read_parquet";
+		break;
+	case HiveFileFormat::CSV:
+		// Hive CSV files carry no schema: the columns are given, by position
+		function_name = "read_csv";
+		param_map["columns"] = Value::STRUCT(data_columns);
+		param_map["header"] = Value::BOOLEAN(scan_info->header);
+		param_map["delim"] = Value(scan_info->delimiter);
+		break;
+	case HiveFileFormat::JSON:
+		// one JSON object per line, keys matched to the columns by name
+		ExtensionHelper::AutoLoadExtension(context, "json");
+		function_name = "read_json";
+		param_map["columns"] = Value::STRUCT(data_columns);
+		param_map["format"] = Value("newline_delimited");
+		break;
+	}
+	auto scan_function = GetListReadFunction(context, function_name, *scan_info);
+	// with the HiveMultiFileReader: the table's schema and partition values, not the files'
 	scan_function.get_multi_file_reader = HiveMultiFileReader::CreateInstance;
-	scan_function.function_info = scan_info;
 
 	vector<Value> file_paths;
 	for (auto &file : scan_info->files) {
 		file_paths.emplace_back(file.path);
 	}
-	named_parameter_map_t param_map;
 	vector<LogicalType> return_types;
 	vector<Identifier> names;
 	if (scan_info->files.empty()) {
@@ -134,8 +183,10 @@ TableFunction BindHiveScan(ClientContext &context, shared_ptr<HiveScanInfo> scan
 	}
 	TableFunctionRef empty_ref;
 	vector<Value> inputs = {Value::LIST(LogicalType::VARCHAR, std::move(file_paths))};
-	TableFunctionBindInput bind_input(inputs, param_map, return_types, names, nullptr, nullptr, scan_function,
-	                                  empty_ref);
+	// the JSON reader's multi-file wrapper reads its wrapped function from the bind input's info
+	TableFunctionBindInput bind_input(inputs, param_map, return_types, names, scan_function.function_info.get(),
+	                                  nullptr, scan_function, empty_ref);
+	HiveScanInfoScope scope(scan_info);
 	bind_data = scan_function.bind(context, bind_input, return_types, names);
 	return scan_function;
 }
@@ -148,8 +199,8 @@ HiveMultiFileReader::HiveMultiFileReader(shared_ptr<HiveScanInfo> scan_info_p) :
 
 unique_ptr<MultiFileReader> HiveMultiFileReader::CreateInstance(const TableFunction &table) {
 	shared_ptr<HiveScanInfo> info;
-	if (table.function_info) {
-		info = shared_ptr_cast<TableFunctionInfo, HiveScanInfo>(table.function_info);
+	if (current_scan_info) {
+		info = *current_scan_info;
 	}
 	auto result = make_uniq<HiveMultiFileReader>(std::move(info));
 	result->function_name = table.name;
@@ -305,6 +356,35 @@ unique_ptr<MultiFileList> HiveMultiFileReader::ComplexFilterPushdown(ClientConte
 }
 
 //===--------------------------------------------------------------------===//
+// Opening files
+//===--------------------------------------------------------------------===//
+shared_ptr<BaseFileReader> HiveMultiFileReader::CreateReader(ClientContext &context, GlobalTableFunctionState &gstate,
+                                                             const OpenFileInfo &file, idx_t file_idx,
+                                                             const MultiFileBindData &bind_data) {
+	auto &info = ScanInfo();
+	if (info.file_format != HiveFileFormat::CSV) {
+		return MultiFileReader::CreateReader(context, gstate, file, file_idx, bind_data);
+	}
+	// The CSV reader would open the file with the global columns (partition columns included) and sniff a schema
+	// it was never given. A Hive CSV file holds exactly the data columns, in order, with the dialect the table
+	// describes: open it with those and without sniffing.
+	auto &csv_data = bind_data.bind_data->Cast<ReadCSVData>();
+	auto &csv_gstate = gstate.Cast<CSVGlobalState>();
+	auto options = csv_data.options;
+	options.auto_detect = false;
+	vector<Identifier> names;
+	vector<LogicalType> types;
+	for (idx_t i = 0; i < info.names.size(); i++) {
+		if (info.GetPartitionKeyIndex(info.names[i].GetIdentifierName()) == DConstants::INVALID_INDEX) {
+			names.push_back(info.names[i]);
+			types.push_back(info.types[i]);
+		}
+	}
+	return make_shared_ptr<CSVFileScan>(context, file, std::move(options), bind_data.file_options, names, types,
+	                                    csv_data.csv_schema, csv_gstate.SingleThreadedRead(), nullptr, false);
+}
+
+//===--------------------------------------------------------------------===//
 // Per file
 //===--------------------------------------------------------------------===//
 void HiveMultiFileReader::FinalizeBind(MultiFileReaderData &reader_data, const MultiFileOptions &file_options,
@@ -312,10 +392,10 @@ void HiveMultiFileReader::FinalizeBind(MultiFileReaderData &reader_data, const M
                                        const vector<MultiFileColumnDefinition> &global_columns,
                                        const vector<ColumnIndex> &global_column_ids, ClientContext &context,
                                        optional_ptr<MultiFileReaderGlobalState> global_state) {
-	MultiFileReader::FinalizeBind(reader_data, file_options, options, global_columns, global_column_ids, context,
-	                              global_state);
+	// The first constant registered for a column wins, so the partition values go in before the base runs: with a
+	// union schema (the JSON reader's default) the base would otherwise fill every column a file lacks, partition
+	// columns included, with NULL.
 	auto &info = ScanInfo();
-	// the columns this file has, by name
 	case_insensitive_set_t local_names;
 	for (auto &local_column : reader_data.reader->GetColumns()) {
 		local_names.insert(local_column.name.GetIdentifierName());
@@ -345,6 +425,9 @@ void HiveMultiFileReader::FinalizeBind(MultiFileReaderData &reader_data, const M
 			reader_data.constant_map.Add(MultiFileGlobalIndex(i), Value(type));
 		}
 	}
+	// the filename / file_index virtual columns
+	MultiFileReader::FinalizeBind(reader_data, file_options, options, global_columns, global_column_ids, context,
+	                              global_state);
 }
 
 } // namespace duckdb

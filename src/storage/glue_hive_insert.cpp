@@ -5,8 +5,14 @@
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/types/uuid.hpp"
 #include "duckdb/execution/operator/persistent/physical_copy_to_file.hpp"
+#include "duckdb/execution/operator/projection/physical_projection.hpp"
+#include "duckdb/function/function_binder.hpp"
+#include "duckdb/function/scalar/struct_functions.hpp"
+#include "duckdb/planner/expression/bound_function_expression.hpp"
+#include "duckdb/planner/expression/bound_reference_expression.hpp"
 #include "duckdb/function/copy_function.hpp"
 #include "duckdb/main/database.hpp"
+#include "duckdb/main/extension_helper.hpp"
 #include "duckdb/parser/parsed_data/copy_info.hpp"
 #include "duckdb/planner/operator/logical_copy_to_file.hpp"
 
@@ -61,19 +67,91 @@ PhysicalOperator &GlueHiveInsert::PlanWrite(ClientContext &context, PhysicalPlan
 		}
 	}
 
-	auto copy_function = TryGetCopyFunction(*context.db, "parquet");
+	// the files are written in the table's format (from its SerDe)
+	auto file_format = table_info.GetFileFormat();
+	auto format_name = HiveFileFormatToString(file_format);
+	// the operator feeding the copy and the columns it produces
+	optional_ptr<PhysicalOperator> source = &plan;
+	vector<Identifier> copy_names = names;
+	vector<LogicalType> copy_types = types;
+	// the copy function and its options
+	string copy_format = format_name;
+	identifier_map_t<vector<Value>> copy_options;
+	switch (file_format) {
+	case HiveFileFormat::PARQUET:
+		break;
+	case HiveFileFormat::CSV:
+		// Hive CSV files: no header line, the table's delimiter
+		copy_options[Identifier("header")] = {Value::BOOLEAN(table_info.HasHeader())};
+		copy_options[Identifier("delimiter")] = {Value(table_info.GetFieldDelimiter())};
+		break;
+	case HiveFileFormat::JSON: {
+		// DuckDB writes JSON the way COPY ... (FORMAT json) does: every row becomes one JSON object (to_json over a
+		// struct of the data columns) and the objects are written line by line with the CSV writer. The partition
+		// columns stay separate columns so the copy can partition on them.
+		ExtensionHelper::AutoLoadExtension(context, "json");
+		vector<unique_ptr<Expression>> struct_children;
+		for (idx_t i = 0; i < names.size(); i++) {
+			if (std::find(partition_columns.begin(), partition_columns.end(), i) != partition_columns.end()) {
+				continue;
+			}
+			auto column_ref = make_uniq<BoundReferenceExpression>(types[i], i);
+			column_ref->SetAlias(names[i]);
+			struct_children.push_back(std::move(column_ref));
+		}
+		vector<unique_ptr<Expression>> to_json_children;
+		to_json_children.push_back(StructPackFun::GetFunction().Bind(context, std::move(struct_children)));
+		FunctionBinder function_binder(context);
+		ErrorData error;
+		auto to_json = function_binder.BindScalarFunction(Identifier::DefaultSchema(), Identifier("to_json"),
+		                                                  std::move(to_json_children), error);
+		if (!to_json) {
+			error.Throw();
+		}
+		vector<unique_ptr<Expression>> select_list;
+		vector<LogicalType> projected_types;
+		// to_json returns the JSON type (a VARCHAR alias): keep it as is, the executor checks the exact type
+		auto json_type = to_json->GetReturnType();
+		select_list.push_back(std::move(to_json));
+		projected_types.push_back(json_type);
+		copy_names = {Identifier("json")};
+		copy_types = {json_type};
+		for (idx_t i = 0; i < partition_columns.size(); i++) {
+			auto column_index = partition_columns[i];
+			select_list.push_back(make_uniq<BoundReferenceExpression>(types[column_index], column_index));
+			projected_types.push_back(types[column_index]);
+			copy_names.push_back(names[column_index]);
+			copy_types.push_back(types[column_index]);
+			// the partition columns follow the json column
+			partition_columns[i] = 1 + i;
+		}
+		auto &projection =
+		    planner.Make<PhysicalProjection>(std::move(projected_types), std::move(select_list), op.estimated_cardinality);
+		projection.children.push_back(plan);
+		source = &projection;
+		copy_format = "csv";
+		copy_options[Identifier("quote")] = {Value("")};
+		copy_options[Identifier("escape")] = {Value("")};
+		copy_options[Identifier("delimiter")] = {Value("\n")};
+		copy_options[Identifier("header")] = {Value::BOOLEAN(false)};
+		break;
+	}
+	}
+	auto copy_function = TryGetCopyFunction(*context.db, copy_format);
 	if (!copy_function) {
-		throw MissingExtensionException("Writing to Hive table '%s' requires the parquet extension", table_info.name);
+		throw MissingExtensionException("Writing to Hive table '%s' requires the %s copy function", table_info.name,
+		                                copy_format);
 	}
 	auto copy_info = make_uniq<CopyInfo>();
 	copy_info->file_path = location;
-	copy_info->format = "parquet";
+	copy_info->format = copy_format;
 	copy_info->is_from = false;
+	copy_info->options = std::move(copy_options);
 
 	// Hive convention: partition columns live in the directory names, not in the files
 	CopyFunctionBindInput bind_input(*copy_info);
-	auto names_to_write = LogicalCopyToFile::GetNamesWithoutPartitions(names, partition_columns, false);
-	auto types_to_write = LogicalCopyToFile::GetTypesWithoutPartitions(types, partition_columns, false);
+	auto names_to_write = LogicalCopyToFile::GetNamesWithoutPartitions(copy_names, partition_columns, false);
+	auto types_to_write = LogicalCopyToFile::GetTypesWithoutPartitions(copy_types, partition_columns, false);
 	auto function_data = copy_function->function.copy_to_bind(context, bind_input, names_to_write, types_to_write);
 
 	auto &physical_copy = planner.Make<PhysicalCopyToFile>(
@@ -92,17 +170,17 @@ PhysicalOperator &GlueHiveInsert::PlanWrite(ClientContext &context, PhysicalPlan
 		// with partitioned output the copy must not initialize a single (partition-less) output file
 		copy.write_empty_file = true;
 	} else {
-		copy.file_path = location + "/duckdb_" + write_id + ".parquet";
+		copy.file_path = location + "/duckdb_" + write_id + "." + format_name;
 		copy.partition_output = false;
 		copy.write_empty_file = false;
 	}
-	copy.file_extension = "parquet";
+	copy.file_extension = format_name;
 	copy.overwrite_mode = CopyOverwriteMode::COPY_OVERWRITE_OR_IGNORE;
 	copy.per_thread_output = false;
 	copy.return_type = CopyFunctionReturnType::CHANGED_ROWS_AND_FILE_LIST;
-	copy.names = names;
-	copy.expected_types = types;
-	copy.children.push_back(plan);
+	copy.names = copy_names;
+	copy.expected_types = copy_types;
+	copy.children.push_back(*source);
 
 	auto &insert = planner.Make<GlueHiveInsert>(op, table, false);
 	insert.children.push_back(physical_copy);

@@ -65,6 +65,73 @@ string GlueTableInfo::GetParameter(const string &key) const {
 	return string();
 }
 
+string HiveFileFormatToString(HiveFileFormat format) {
+	switch (format) {
+	case HiveFileFormat::PARQUET:
+		return "parquet";
+	case HiveFileFormat::CSV:
+		return "csv";
+	case HiveFileFormat::JSON:
+		return "json";
+	}
+	throw InternalException("Unknown HiveFileFormat");
+}
+
+HiveFileFormat HiveFileFormatFromString(const string &format) {
+	auto lower = StringUtil::Lower(format);
+	if (lower == "parquet") {
+		return HiveFileFormat::PARQUET;
+	}
+	if (lower == "csv") {
+		return HiveFileFormat::CSV;
+	}
+	if (lower == "json") {
+		return HiveFileFormat::JSON;
+	}
+	throw BinderException("Unknown Hive file format '%s', expected 'parquet', 'csv' or 'json'", format);
+}
+
+string GlueTableInfo::GetSerdeParameter(const string &key) const {
+	for (auto &entry : serde_parameters) {
+		if (StringUtil::CIEquals(entry.first, key)) {
+			return entry.second;
+		}
+	}
+	return string();
+}
+
+HiveFileFormat GlueTableInfo::GetFileFormat() const {
+	auto serde = StringUtil::Lower(serde_library);
+	if (StringUtil::Contains(serde, "parquet")) {
+		return HiveFileFormat::PARQUET;
+	}
+	if (StringUtil::Contains(serde, "lazysimpleserde") || StringUtil::Contains(serde, "opencsvserde")) {
+		return HiveFileFormat::CSV;
+	}
+	if (StringUtil::Contains(serde, "json")) {
+		return HiveFileFormat::JSON;
+	}
+	throw NotImplementedException("Hive table '%s.%s' uses SerDe '%s', only parquet (ParquetHiveSerDe), csv "
+	                              "(LazySimpleSerDe, OpenCSVSerde) and json (JsonSerDe) tables are supported",
+	                              database_name, name, serde_library);
+}
+
+string GlueTableInfo::GetFieldDelimiter() const {
+	// LazySimpleSerDe: field.delim, OpenCSVSerde: separatorChar
+	auto delimiter = GetSerdeParameter("field.delim");
+	if (delimiter.empty()) {
+		delimiter = GetSerdeParameter("separatorChar");
+	}
+	if (delimiter.empty()) {
+		return ",";
+	}
+	return delimiter;
+}
+
+bool GlueTableInfo::HasHeader() const {
+	return GetParameter("skip.header.line.count") == "1";
+}
+
 GlueTableFormat GlueTableInfo::GetFormat() const {
 	// Open table formats register themselves through the 'table_type' parameter
 	auto table_type = StringUtil::Upper(GetParameter("table_type"));
@@ -459,23 +526,42 @@ void GlueAPI::CreateHiveTable(ClientContext &context, GlueCatalog &catalog, cons
 	GlueHttpClientContextScope http_scope(context);
 	auto client = GetClient(context, catalog);
 
-	// Parquet backed external table, described the way Hive / Athena / Spark expect it
+	// An external table, described the way Hive / Athena / Spark expect it for the file format
 	Aws::Glue::Model::SerDeInfo serde_info;
-	serde_info.SetSerializationLibrary("org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe");
-	serde_info.AddParameters("serialization.format", "1");
-
 	Aws::Glue::Model::StorageDescriptor storage_descriptor;
+	auto parameters = ToAwsMap(table.parameters);
+	switch (table.file_format) {
+	case HiveFileFormat::PARQUET:
+		serde_info.SetSerializationLibrary("org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe");
+		serde_info.AddParameters("serialization.format", "1");
+		storage_descriptor.SetInputFormat("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat");
+		storage_descriptor.SetOutputFormat("org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat");
+		parameters.emplace("classification", "parquet");
+		break;
+	case HiveFileFormat::CSV:
+		// Athena's "ROW FORMAT DELIMITED FIELDS TERMINATED BY ','" without a header line
+		serde_info.SetSerializationLibrary("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe");
+		serde_info.AddParameters("field.delim", ",");
+		serde_info.AddParameters("serialization.format", ",");
+		storage_descriptor.SetInputFormat("org.apache.hadoop.mapred.TextInputFormat");
+		storage_descriptor.SetOutputFormat("org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat");
+		parameters.emplace("classification", "csv");
+		parameters.emplace("delimiter", ",");
+		break;
+	case HiveFileFormat::JSON:
+		// one JSON object per line
+		serde_info.SetSerializationLibrary("org.apache.hive.hcatalog.data.JsonSerDe");
+		storage_descriptor.SetInputFormat("org.apache.hadoop.mapred.TextInputFormat");
+		storage_descriptor.SetOutputFormat("org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat");
+		parameters.emplace("classification", "json");
+		break;
+	}
 	storage_descriptor.SetLocation(table.location);
 	storage_descriptor.SetColumns(ToAwsColumns(table.columns));
-	storage_descriptor.SetInputFormat("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat");
-	storage_descriptor.SetOutputFormat("org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat");
 	storage_descriptor.SetSerdeInfo(serde_info);
 	storage_descriptor.SetCompressed(false);
 	storage_descriptor.SetNumberOfBuckets(-1);
-
-	auto parameters = ToAwsMap(table.parameters);
 	parameters.emplace("EXTERNAL", "TRUE");
-	parameters.emplace("classification", "parquet");
 
 	Aws::Glue::Model::TableInput table_input;
 	table_input.SetName(table.name);

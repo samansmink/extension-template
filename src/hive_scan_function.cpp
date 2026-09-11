@@ -120,6 +120,7 @@ unique_ptr<FunctionData> HiveScanBind(ClientContext &context, TableFunctionBindI
 		throw BinderException("hive_scan: the root location must not be empty");
 	}
 
+	scan_info->file_format = HiveFileFormat::PARQUET;
 	optional_ptr<const Value> schema;
 	optional_ptr<const Value> partition_keys;
 	optional_ptr<const Value> partitions;
@@ -131,6 +132,12 @@ unique_ptr<FunctionData> HiveScanBind(ClientContext &context, TableFunctionBindI
 			partition_keys = option.second;
 		} else if (name == "partitions") {
 			partitions = option.second;
+		} else if (name == "format") {
+			scan_info->file_format = HiveFileFormatFromString(option.second.GetValue<string>());
+		} else if (name == "delim") {
+			scan_info->delimiter = option.second.GetValue<string>();
+		} else if (name == "header") {
+			scan_info->header = option.second.GetValue<bool>();
 		}
 	}
 	if (!schema) {
@@ -168,8 +175,8 @@ unique_ptr<FunctionData> HiveScanBind(ClientContext &context, TableFunctionBindI
 } // namespace
 
 TableFunction GetHiveScanFunction(DatabaseInstance &db) {
-	// hive_scan is read_parquet with the HiveMultiFileReader and its own bind: the schema and partitions come from the
-	// arguments instead of from a Glue table
+	// hive_scan is read_parquet with its own bind: the schema and partitions come from the arguments instead of from a
+	// Glue table, and the bind picks the reader for the format (read_parquet, read_csv, read_json)
 	auto &system_catalog = Catalog::GetSystemCatalog(db);
 	auto data = CatalogTransaction::GetSystemTransaction(db);
 	auto &catalog_schema = system_catalog.GetSchema(data, Identifier::DefaultSchema());
@@ -195,6 +202,9 @@ TableFunction GetHiveScanFunction(DatabaseInstance &db) {
 	function.named_parameters["schema"] = LogicalType::ANY;
 	function.named_parameters["partition_keys"] = LogicalType::LIST(LogicalType::VARCHAR);
 	function.named_parameters["partitions"] = LogicalType::ANY;
+	function.named_parameters["format"] = LogicalType::VARCHAR;
+	function.named_parameters["delim"] = LogicalType::VARCHAR;
+	function.named_parameters["header"] = LogicalType::BOOLEAN;
 	function.bind = HiveScanBind;
 	function.bind_replace = nullptr;
 	function.get_multi_file_reader = HiveMultiFileReader::CreateInstance;

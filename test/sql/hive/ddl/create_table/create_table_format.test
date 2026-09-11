@@ -1,0 +1,165 @@
+# name: test/sql/hive/ddl/create_table/create_table_format.test
+# description: CREATE TABLE ... WITH (format = 'parquet' | 'csv' | 'json') for Hive tables in Glue: the SerDe Glue
+#              stores, INSERT writing files of that format and reads through Glue and through hive_scan()
+# group: [create_table]
+
+require httpfs
+
+require aws
+
+require json
+
+require glue
+
+require-env DEFAULT_S3_LOCATION
+
+statement ok
+CREATE SECRET (
+  TYPE S3,
+  PROVIDER credential_chain,
+  REGION 'eu-central-1',
+  PROFILE 'personal'
+);
+
+statement ok
+attach '984506134640' as my_datalake (
+    TYPE glue,
+    DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
+);
+
+statement ok
+DROP TABLE IF EXISTS my_datalake.default.fmt_default;
+
+statement ok
+DROP TABLE IF EXISTS my_datalake.default.fmt_csv;
+
+statement ok
+DROP TABLE IF EXISTS my_datalake.default.fmt_json;
+
+#---------------------------------------------------------------------------
+# parquet is the default
+#---------------------------------------------------------------------------
+statement ok
+CREATE TABLE my_datalake.default.fmt_default (id INTEGER, name VARCHAR);
+
+query II
+SELECT serde_library, parameters['classification'] FROM glue_get_table_response('my_datalake.default.fmt_default');
+----
+org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe	parquet
+
+statement ok
+INSERT INTO my_datalake.default.fmt_default VALUES (1, 'a');
+
+query I
+SELECT count(*) FROM glob('{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/fmt_default/*.parquet');
+----
+1
+
+#---------------------------------------------------------------------------
+# csv
+#---------------------------------------------------------------------------
+statement ok
+CREATE TABLE my_datalake.default.fmt_csv (id INTEGER, name VARCHAR, dt VARCHAR) PARTITIONED BY (dt) WITH (format = 'csv');
+
+query II
+SELECT serde_library, parameters['classification'] FROM glue_get_table_response('my_datalake.default.fmt_csv');
+----
+org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe	csv
+
+statement ok
+INSERT INTO my_datalake.default.fmt_csv VALUES (1, 'a', '2016-05-14'), (2, 'b', '2016-05-14'), (3, 'c', '2016-05-15');
+
+# the files are csv without a header line and without the partition column
+query I
+SELECT count(*) FROM glob('{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/fmt_csv/dt=2016-05-14/*.csv');
+----
+1
+
+query I
+SELECT count(*) FROM read_csv('{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/fmt_csv/dt=2016-05-14/*.csv', header = false, columns = {id: 'INTEGER', name: 'VARCHAR'});
+----
+2
+
+query III
+SELECT id, name, dt FROM my_datalake.default.fmt_csv ORDER BY id;
+----
+1	a	2016-05-14
+2	b	2016-05-14
+3	c	2016-05-15
+
+query I
+SELECT id FROM my_datalake.default.fmt_csv WHERE dt = '2016-05-15';
+----
+3
+
+#---------------------------------------------------------------------------
+# json
+#---------------------------------------------------------------------------
+statement ok
+CREATE TABLE my_datalake.default.fmt_json (id INTEGER, name VARCHAR) WITH (format = 'json');
+
+query II
+SELECT serde_library, parameters['classification'] FROM glue_get_table_response('my_datalake.default.fmt_json');
+----
+org.apache.hive.hcatalog.data.JsonSerDe	json
+
+statement ok
+INSERT INTO my_datalake.default.fmt_json VALUES (1, 'a'), (2, 'b');
+
+query I
+SELECT count(*) FROM glob('{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/fmt_json/*.json');
+----
+1
+
+query II
+SELECT id, name FROM my_datalake.default.fmt_json ORDER BY id;
+----
+1	a
+2	b
+
+#---------------------------------------------------------------------------
+# errors
+#---------------------------------------------------------------------------
+statement error
+CREATE TABLE my_datalake.default.fmt_orc (id INTEGER) WITH (format = 'orc');
+----
+Unknown Hive file format
+
+#---------------------------------------------------------------------------
+# the same csv table read with hive_scan(), without the catalog
+#---------------------------------------------------------------------------
+statement ok
+DETACH my_datalake;
+
+query III
+SELECT id, name, dt FROM hive_scan('{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/fmt_csv', format := 'csv',
+    schema := {id: 'INTEGER', name: 'VARCHAR', dt: 'VARCHAR'},
+    partitions := [{dt: '2016-05-14'}, {dt: '2016-05-15'}])
+ORDER BY id;
+----
+1	a	2016-05-14
+2	b	2016-05-14
+3	c	2016-05-15
+
+query II
+SELECT id, name FROM hive_scan('{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/fmt_json', format := 'json',
+    schema := {id: 'INTEGER', name: 'VARCHAR'})
+ORDER BY id;
+----
+1	a
+2	b
+
+statement ok
+attach '984506134640' as my_datalake (
+    TYPE glue,
+    DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
+);
+
+statement ok
+DROP TABLE my_datalake.default.fmt_default;
+
+statement ok
+DROP TABLE my_datalake.default.fmt_csv;
+
+statement ok
+DROP TABLE my_datalake.default.fmt_json;

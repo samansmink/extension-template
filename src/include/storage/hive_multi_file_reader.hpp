@@ -21,6 +21,11 @@ struct HiveScanInfo : public TableFunctionInfo {
 	//! The columns of the table: data columns first, partition keys last
 	vector<Identifier> names;
 	vector<LogicalType> types;
+	//! The file format of the data files
+	HiveFileFormat file_format = HiveFileFormat::PARQUET;
+	//! CSV only: the field delimiter and whether every file starts with a header line
+	string delimiter = ",";
+	bool header = false;
 	//! The partition keys, in order
 	vector<string> partition_keys;
 	//! The partitions registered in Glue (empty for an unpartitioned table)
@@ -41,8 +46,9 @@ struct HiveScanInfo : public TableFunctionInfo {
 	void CollectFiles(ClientContext &context);
 };
 
-//! Bind read_parquet over the files of 'scan_info' with the HiveMultiFileReader. Returns the bound table function
-//! and fills in 'bind_data'; the scan produces exactly the columns of 'scan_info'.
+//! Bind the reader for the file format (read_parquet, read_csv or read_json) over the files of 'scan_info' with the
+//! HiveMultiFileReader. Returns the bound table function and fills in 'bind_data'; the scan produces exactly the
+//! columns of 'scan_info'.
 TableFunction BindHiveScan(ClientContext &context, shared_ptr<HiveScanInfo> scan_info,
                            unique_ptr<FunctionData> &bind_data);
 
@@ -66,6 +72,10 @@ public:
 	unique_ptr<MultiFileList> ComplexFilterPushdown(ClientContext &context, MultiFileList &files,
 	                                                const MultiFileOptions &options, MultiFilePushdownInfo &info,
 	                                                vector<unique_ptr<Expression>> &filters) override;
+	//! CSV files are opened with the data columns of the table (by position) and no sniffing
+	shared_ptr<BaseFileReader> CreateReader(ClientContext &context, GlobalTableFunctionState &gstate,
+	                                        const OpenFileInfo &file, idx_t file_idx,
+	                                        const MultiFileBindData &bind_data) override;
 	void FinalizeBind(MultiFileReaderData &reader_data, const MultiFileOptions &file_options,
 	                  const MultiFileReaderBindData &options, const vector<MultiFileColumnDefinition> &global_columns,
 	                  const vector<ColumnIndex> &global_column_ids, ClientContext &context,

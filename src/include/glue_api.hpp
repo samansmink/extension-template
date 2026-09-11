@@ -38,6 +38,12 @@ struct GlueDatabaseInfo {
 	unordered_map<string, string> parameters;
 };
 
+//! The file format of a Hive table's data files, decided by its SerDe
+enum class HiveFileFormat : uint8_t { PARQUET, CSV, JSON };
+string HiveFileFormatToString(HiveFileFormat format);
+//! Parse 'parquet' | 'csv' | 'json' (case-insensitive), throws for anything else
+HiveFileFormat HiveFileFormatFromString(const string &format);
+
 //! A Glue "Table"
 struct GlueTableInfo {
 	string name;
@@ -54,6 +60,8 @@ struct GlueTableInfo {
 	vector<GlueColumn> columns;
 	vector<GlueColumn> partition_keys;
 	unordered_map<string, string> parameters;
+	//! The file format to create the table with (CreateHiveTable); for a fetched table use GetFileFormat()
+	HiveFileFormat file_format = HiveFileFormat::PARQUET;
 
 public:
 	//! Derive the open table format from the table parameters
@@ -64,6 +72,14 @@ public:
 	string GetMetadataLocation() const;
 	//! Look up a table parameter (case-insensitive key), returns empty string if missing
 	string GetParameter(const string &key) const;
+	//! Look up a SerDe parameter (case-insensitive key), returns empty string if missing
+	string GetSerdeParameter(const string &key) const;
+	//! The file format of the data files, derived from the SerDe; throws NotImplementedException for other SerDes
+	HiveFileFormat GetFileFormat() const;
+	//! The field delimiter of a CSV table (field.delim / separatorChar), ',' when the SerDe does not say
+	string GetFieldDelimiter() const;
+	//! Whether the data files of a CSV table start with a header line (skip.header.line.count)
+	bool HasHeader() const;
 };
 
 //! A partition of a Hive table to register: the partition values (in partition key order) and its location
