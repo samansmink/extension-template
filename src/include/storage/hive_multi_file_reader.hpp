@@ -12,8 +12,12 @@ namespace duckdb {
 //! Everything a Hive table scan knows before any data file is opened: the table schema as Glue defines it, the
 //! partitions Glue lists (values and locations) and the data files of every partition
 struct HiveScanInfo : public TableFunctionInfo {
+	//! Where the table comes from, for error messages: a Glue table or a hive_scan root
 	string database_name;
 	string table_name;
+	//! The table location: the data files of an unpartitioned table live directly below it, and it is the parent of
+	//! the <key>=<value> directories of partitions without an explicit location
+	string root_location;
 	//! The columns of the table: data columns first, partition keys last
 	vector<Identifier> names;
 	vector<LogicalType> types;
@@ -30,7 +34,17 @@ struct HiveScanInfo : public TableFunctionInfo {
 	idx_t GetPartitionKeyIndex(const string &name) const;
 	//! The partition the file at 'path' belongs to
 	const GluePartitionInfo &GetPartitionOfFile(const string &path) const;
+	//! A description of the table for error messages
+	string Describe() const;
+	//! List the data files: those directly below the location of every partition, or directly below the root
+	//! location for an unpartitioned table. Files named _* or .* are skipped.
+	void CollectFiles(ClientContext &context);
 };
+
+//! Bind read_parquet over the files of 'scan_info' with the HiveMultiFileReader. Returns the bound table function
+//! and fills in 'bind_data'; the scan produces exactly the columns of 'scan_info'.
+TableFunction BindHiveScan(ClientContext &context, shared_ptr<HiveScanInfo> scan_info,
+                           unique_ptr<FunctionData> &bind_data);
 
 //! MultiFileReader for Hive tables registered in Glue. It reads the files Glue's partitions point to (whatever their
 //! directory names), binds the schema Glue defines rather than the schema of the first file (a column missing from a
@@ -38,7 +52,7 @@ struct HiveScanInfo : public TableFunctionInfo {
 //! values Glue stores for its partition. Filters on partition columns prune whole partitions before any file is opened.
 class HiveMultiFileReader : public MultiFileReader {
 public:
-	explicit HiveMultiFileReader(shared_ptr<TableFunctionInfo> function_info);
+	explicit HiveMultiFileReader(shared_ptr<HiveScanInfo> scan_info);
 
 	static unique_ptr<MultiFileReader> CreateInstance(const TableFunction &table);
 
@@ -61,7 +75,7 @@ private:
 	const HiveScanInfo &ScanInfo() const;
 
 private:
-	shared_ptr<TableFunctionInfo> function_info;
+	shared_ptr<HiveScanInfo> scan_info;
 };
 
 } // namespace duckdb

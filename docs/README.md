@@ -60,6 +60,27 @@ Other SerDes (CSV, JSON, ORC, Avro) are not supported yet.
 Glue has no transactions: DDL takes effect immediately, files are visible as soon as they are written, and nothing
 is rolled back on failure. `DELETE`, `UPDATE` and `MERGE INTO` are not supported.
 
+## Reading without a catalog: hive_scan
+
+The same scan is available as a table function, for parquet Hive tables that are not (or not yet) registered in
+Glue. The schema and the partitions are given as arguments; nothing is looked up in a catalog.
+
+```sql
+SELECT * FROM hive_scan('s3://bucket/warehouse/orders',
+    schema := {id: 'INTEGER', amount: 'DOUBLE', dt: 'VARCHAR', country: 'VARCHAR'},
+    partitions := [
+        {dt: '2016-05-14', country: 'IN', location: NULL},
+        {dt: '2016-05-16', country: 'IN', location: 's3://bucket/imports/INDIA_16_May_2016'}
+    ]);
+```
+
+- `schema` (required): a struct of column name to DuckDB type name, data columns and partition columns.
+- `partitions`: one struct per partition with a value for every partition key and an optional `location`; without
+  a location the partition lives at `<root>/<key>=<value>/...`. The partition keys are the struct fields other than
+  `location`, in that order, unless `partition_keys := [...]` names them. Without `partitions` the table is
+  unpartitioned and the files directly below the root are read.
+- A root or partition without data files scans as zero rows.
+
 ## Partitions
 
 DuckDB has no `ALTER TABLE ... PARTITION` syntax, so the Athena partition statements are table functions. The

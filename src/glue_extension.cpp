@@ -68,6 +68,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	loader.RegisterFunction(GetGlueAddPartitionFunction());
 	loader.RegisterFunction(GetGlueDropPartitionFunction());
 	loader.RegisterFunction(GetGlueRenamePartitionFunction());
+	loader.RegisterFunction(GetHiveScanFunction(instance));
 }
 
 void GlueExtension::Load(ExtensionLoader &loader) {
