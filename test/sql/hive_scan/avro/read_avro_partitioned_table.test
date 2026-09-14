@@ -1,0 +1,36 @@
+# name: test/sql/hive_scan/avro/read_avro_partitioned_table.test
+# description: hive_scan() on avro files
+# group: [avro]
+
+require parquet
+
+require json
+
+require glue
+
+require aws
+
+require httpfs
+
+statement ok
+CREATE SECRET (
+  TYPE S3,
+  PROVIDER credential_chain,
+  REGION 'eu-central-1',
+  PROFILE 'personal'
+);
+
+statement ok
+attach '984506134640' as my_datalake (
+    TYPE glue
+);
+
+query III
+select * from my_datalake.default.avro_table order by year;
+----
+AA4	3	1993
+AA3	12	1999
+AA1	5	2007
+AA2	0	2015
+AA5	7	2015
+

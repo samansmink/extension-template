@@ -82,6 +82,9 @@ PhysicalOperator &GlueHiveInsert::PlanWrite(ClientContext &context, PhysicalPlan
 	switch (file_format) {
 	case HiveFileFormat::PARQUET:
 		break;
+	case HiveFileFormat::AVRO:
+		ExtensionHelper::AutoLoadExtension(context, "avro");
+		break;
 	case HiveFileFormat::CSV:
 		// Hive CSV files: no header line, the table's delimiter
 		copy_options[Identifier("header")] = {Value::BOOLEAN(table_info.HasHeader())};

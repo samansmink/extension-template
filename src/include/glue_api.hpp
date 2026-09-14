@@ -39,9 +39,9 @@ struct GlueDatabaseInfo {
 };
 
 //! The file format of a Hive table's data files, decided by its SerDe
-enum class HiveFileFormat : uint8_t { PARQUET, CSV, JSON };
+enum class HiveFileFormat : uint8_t { PARQUET, CSV, JSON, AVRO };
 string HiveFileFormatToString(HiveFileFormat format);
-//! Parse 'parquet' | 'csv' | 'json' (case-insensitive), throws for anything else
+//! Parse 'parquet' | 'csv' | 'json' | 'avro' (case-insensitive), throws for anything else
 HiveFileFormat HiveFileFormatFromString(const string &format);
 
 //! A Glue "Table"

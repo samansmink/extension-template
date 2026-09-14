@@ -3,6 +3,9 @@
 		"openssl",
 		"curl",
 		"zlib",
+		"snappy",
+		"liblzma",
+		"jansson",
 		{
 			"name": "aws-sdk-cpp",
 			"features": [

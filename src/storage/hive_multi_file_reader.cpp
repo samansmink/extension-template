@@ -164,6 +164,11 @@ TableFunction BindHiveScan(ClientContext &context, shared_ptr<HiveScanInfo> scan
 		param_map["columns"] = Value::STRUCT(data_columns);
 		param_map["format"] = Value("newline_delimited");
 		break;
+	case HiveFileFormat::AVRO:
+		// the files carry their schema, columns are matched by name like parquet
+		ExtensionHelper::AutoLoadExtension(context, "avro");
+		function_name = "read_avro";
+		break;
 	}
 	auto scan_function = GetListReadFunction(context, function_name, *scan_info);
 	// with the HiveMultiFileReader: the table's schema and partition values, not the files'

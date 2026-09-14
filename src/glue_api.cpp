@@ -74,6 +74,8 @@ string HiveFileFormatToString(HiveFileFormat format) {
 		return "csv";
 	case HiveFileFormat::JSON:
 		return "json";
+	case HiveFileFormat::AVRO:
+		return "avro";
 	}
 	throw InternalException("Unknown HiveFileFormat");
 }
@@ -89,7 +91,10 @@ HiveFileFormat HiveFileFormatFromString(const string &format) {
 	if (lower == "json") {
 		return HiveFileFormat::JSON;
 	}
-	throw BinderException("Unknown Hive file format '%s', expected 'parquet', 'csv' or 'json'", format);
+	if (lower == "avro") {
+		return HiveFileFormat::AVRO;
+	}
+	throw BinderException("Unknown Hive file format '%s', expected 'parquet', 'csv', 'json' or 'avro'", format);
 }
 
 string GlueTableInfo::GetSerdeParameter(const string &key) const {
@@ -112,8 +117,12 @@ HiveFileFormat GlueTableInfo::GetFileFormat() const {
 	if (StringUtil::Contains(serde, "json")) {
 		return HiveFileFormat::JSON;
 	}
+	if (StringUtil::Contains(serde, "avro")) {
+		return HiveFileFormat::AVRO;
+	}
 	throw NotImplementedException("Hive table '%s.%s' uses SerDe '%s', only parquet (ParquetHiveSerDe), csv "
-	                              "(LazySimpleSerDe, OpenCSVSerde) and json (JsonSerDe) tables are supported",
+	                              "(LazySimpleSerDe, OpenCSVSerde), json (JsonSerDe) and avro (AvroSerDe) tables are "
+	                              "supported",
 	                              database_name, name, serde_library);
 }
 
@@ -555,6 +564,13 @@ void GlueAPI::CreateHiveTable(ClientContext &context, GlueCatalog &catalog, cons
 		storage_descriptor.SetInputFormat("org.apache.hadoop.mapred.TextInputFormat");
 		storage_descriptor.SetOutputFormat("org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat");
 		parameters.emplace("classification", "json");
+		break;
+	case HiveFileFormat::AVRO:
+		// Avro container files, the schema travels in the files
+		serde_info.SetSerializationLibrary("org.apache.hadoop.hive.serde2.avro.AvroSerDe");
+		storage_descriptor.SetInputFormat("org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat");
+		storage_descriptor.SetOutputFormat("org.apache.hadoop.hive.ql.io.avro.AvroContainerOutputFormat");
+		parameters.emplace("classification", "avro");
 		break;
 	}
 	storage_descriptor.SetLocation(table.location);

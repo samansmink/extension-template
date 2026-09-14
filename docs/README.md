@@ -38,15 +38,16 @@ Hive tables stored as parquet (ParquetHiveSerDe) are scanned with `read_parquet`
 The SerDe of the Glue table decides the reader: ParquetHiveSerDe reads with `read_parquet`, LazySimpleSerDe and
 OpenCSVSerde with `read_csv` (columns by position, no header unless `skip.header.line.count` is 1, delimiter
 from `field.delim` / `separatorChar`, `,` otherwise) and JsonSerDe with `read_json` (one object per line, keys by
-name). Other SerDes (ORC, Avro, ...) are not supported.
+name) and AvroSerDe with `read_avro` from the avro extension, which is loaded on demand. Other SerDes (ORC, Ion,
+...) are not supported.
 
 ## Writing
 
 - `CREATE SCHEMA` creates a Glue database with LocationUri `<DEFAULT_LOCATION>/<schema>`, or without a LocationUri
   when the catalog was attached without `DEFAULT_LOCATION`.
 - `CREATE TABLE ... [PARTITIONED BY (col, ...)] [WITH (format = 'parquet' | 'csv' | 'json', location = '...',
-  <property> = '...')]` creates a parquet (default), csv (LazySimpleSerDe, `,` delimited, no header) or json
-  (JsonSerDe, one object per line)
+  <property> = '...')]` creates a parquet (default), csv (LazySimpleSerDe, `,` delimited, no header), json
+  (JsonSerDe, one object per line) or avro (AvroSerDe)
   Hive table at `location`, else `<DEFAULT_LOCATION>/<database>/<table>`, else `<database LocationUri>/<table>`;
   without any of these the statement fails. Partition keys must be plain column names; they become Glue
   PartitionKeys and are listed last in the table's columns. Unknown `WITH` keys are stored as Glue table parameters.
@@ -80,7 +81,7 @@ SELECT * FROM hive_scan('s3://bucket/warehouse/orders',
 ```
 
 - `schema` (required): a struct of column name to DuckDB type name, data columns and partition columns.
-- `format`: `'parquet'` (default), `'csv'` or `'json'`. For csv, `header := true` and `delim := '|'` describe the
+- `format`: `'parquet'` (default), `'csv'`, `'json'` or `'avro'`. For csv, `header := true` and `delim := '|'` describe the
   files; csv columns are matched by position, json keys by name.
 - `partitions`: one struct per partition with a value for every partition key and an optional `location`; without
   a location the partition lives at `<root>/<key>=<value>/...`. The partition keys are the struct fields other than

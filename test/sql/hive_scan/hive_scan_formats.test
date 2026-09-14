@@ -6,6 +6,8 @@ require parquet
 
 require json
 
+require avro
+
 require glue
 
 # partitioned data in every format: the partition column lives in the directory name, not in the files
@@ -106,6 +108,31 @@ SELECT id, note FROM hive_scan('{TEST_DIR}/fmt_json', format := 'json',
     partitions := [{dt: '2016-05-15'}]);
 ----
 3	NULL
+
+#---------------------------------------------------------------------------
+# avro: the files carry their schema, columns are matched by name
+#---------------------------------------------------------------------------
+statement ok
+COPY (SELECT * FROM (VALUES (1, 10.5, '2016-05-14'), (2, 20.5, '2016-05-14'), (3, 30.5, '2016-05-15')) t(id, amount, dt))
+TO '{TEST_DIR}/fmt_avro' (FORMAT avro, PARTITION_BY (dt));
+
+query III
+SELECT id, amount, dt FROM hive_scan('{TEST_DIR}/fmt_avro', format := 'avro',
+    schema := {id: 'INTEGER', amount: 'DOUBLE', dt: 'VARCHAR'},
+    partitions := [{dt: '2016-05-14'}, {dt: '2016-05-15'}])
+ORDER BY id;
+----
+1	10.5	2016-05-14
+2	20.5	2016-05-14
+3	30.5	2016-05-15
+
+query I
+SELECT id FROM hive_scan('{TEST_DIR}/fmt_avro', format := 'avro',
+    schema := {id: 'INTEGER', amount: 'DOUBLE', dt: 'VARCHAR'},
+    partitions := [{dt: '2016-05-14'}, {dt: '2016-05-15'}])
+WHERE dt = '2016-05-15';
+----
+3
 
 #---------------------------------------------------------------------------
 # errors
