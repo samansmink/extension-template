@@ -29,9 +29,12 @@ Hive tables stored as parquet (ParquetHiveSerDe) are scanned with `read_parquet`
   the table location for an unpartitioned table. Partition locations need not follow the `<key>=<value>` layout.
   Files named `_*` or `.*` are skipped. A table without data files (just created) scans as empty.
 - Partition column values are the values Glue stores for the partition, not the directory names, typed as Glue's
-  partition keys. Files are listed lazily, one directory listing per partition: filters on partition columns are
-  applied to the partition values first, so only the partitions a query reads are listed (EXPLAIN shows the
-  partitions kept as `Scanning Files`). Planning a query does not touch S3.
+  partition keys. Files are listed lazily: filters on partition columns are applied to the partition values first,
+  so only the partitions a query reads are listed (EXPLAIN shows the partitions kept as `Scanning Files`), and
+  planning a query does not touch S3. When a query reads at least `hive_partition_listing_threshold` (default
+  10) partitions below the table location, the location is listed once, recursively (one S3 request per 1000
+  keys), and the files are matched to their partitions by prefix; fewer partitions, and partitions at custom
+  locations, are listed one directory each.
 - The schema is Glue's, data columns first and partition keys last, in `PARTITIONED BY` order. Files are matched
   by column name: a column a file does not have (added after the file was written) reads as NULL, a column with
   a different type in the file is cast, and file columns Glue does not list are ignored.

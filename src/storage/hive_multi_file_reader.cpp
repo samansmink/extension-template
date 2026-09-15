@@ -94,24 +94,52 @@ HiveMultiFileList::HiveMultiFileList(ClientContext &context, shared_ptr<HiveScan
       partition_indexes(std::move(partition_indexes_p)) {
 }
 
-bool HiveMultiFileList::ExpandNextPath() const {
-	// called with the list's lock held; expands one partition (one directory listing) per call
-	auto &fs = FileSystem::GetFileSystem(client_context);
+//! Whether a path component below the table root is data (Hive skips _* and .* files and directories)
+static bool IsHiddenComponent(const string &name) {
+	return name.empty() || name[0] == '_' || name[0] == '.';
+}
+
+void HiveMultiFileList::PlanListings() const {
+	if (planned) {
+		return;
+	}
+	planned = true;
 	if (scan_info->partition_keys.empty()) {
-		if (next_partition > 0) {
-			return false;
-		}
-		next_partition++;
-		if (scan_info->root_location.empty()) {
-			throw InvalidInputException("Hive table '%s' has no location", scan_info->Describe());
-		}
-		ListDataFiles(fs, scan_info->root_location, expanded_files);
-		return true;
+		jobs.push_back(ListingJob {true, {}});
+		return;
 	}
-	if (next_partition >= partition_indexes.size()) {
-		return false;
+	// the partitions below the table root can be listed together
+	auto root = scan_info->root_location;
+	StringUtil::RTrim(root, "/");
+	vector<idx_t> below_root;
+	vector<idx_t> elsewhere;
+	for (auto partition_index : partition_indexes) {
+		auto location = scan_info->partitions[partition_index].location;
+		StringUtil::RTrim(location, "/");
+		if (!root.empty() && location.size() > root.size() + 1 && StringUtil::StartsWith(location, root + "/")) {
+			below_root.push_back(partition_index);
+		} else {
+			elsewhere.push_back(partition_index);
+		}
 	}
-	auto partition_index = partition_indexes[next_partition++];
+	idx_t threshold = 10;
+	Value setting;
+	if (client_context.TryGetCurrentSetting("hive_partition_listing_threshold", setting) && !setting.IsNull()) {
+		threshold = setting.GetValue<idx_t>();
+	}
+	if (!below_root.empty() && below_root.size() >= threshold) {
+		jobs.push_back(ListingJob {true, std::move(below_root)});
+	} else {
+		for (auto partition_index : below_root) {
+			jobs.push_back(ListingJob {false, {partition_index}});
+		}
+	}
+	for (auto partition_index : elsewhere) {
+		jobs.push_back(ListingJob {false, {partition_index}});
+	}
+}
+
+void HiveMultiFileList::ListPartition(FileSystem &fs, idx_t partition_index) const {
 	auto &partition = scan_info->partitions[partition_index];
 	if (partition.values.size() != scan_info->partition_keys.size()) {
 		throw InvalidInputException("Partition [%s] of Hive table '%s' has %d values but the table has %d partition "
@@ -129,6 +157,94 @@ bool HiveMultiFileList::ExpandNextPath() const {
 		}
 		expanded_files.push_back(std::move(file));
 	}
+}
+
+void HiveMultiFileList::ListRoot(FileSystem &fs, const vector<idx_t> &partitions) const {
+	auto root = scan_info->root_location;
+	StringUtil::RTrim(root, "/");
+	if (root.empty()) {
+		throw InvalidInputException("Hive table '%s' has no location", scan_info->Describe());
+	}
+	// one recursive listing of the root: on S3 a flat ListObjectsV2 over the prefix, 1000 keys per request
+	auto files = fs.GlobFiles(root + "/**", FileGlobOptions::ALLOW_EMPTY);
+	// the partitions by location (without trailing slash), to match the files against
+	unordered_map<string, idx_t> partition_by_location;
+	for (auto partition_index : partitions) {
+		auto &partition = scan_info->partitions[partition_index];
+		if (partition.values.size() != scan_info->partition_keys.size()) {
+			throw InvalidInputException("Partition [%s] of Hive table '%s' has %d values but the table has %d "
+			                            "partition keys",
+			                            StringUtil::Join(partition.values, ", "), scan_info->Describe(),
+			                            partition.values.size(), scan_info->partition_keys.size());
+		}
+		auto location = partition.location;
+		StringUtil::RTrim(location, "/");
+		partition_by_location.emplace(location, partition_index);
+	}
+	auto root_prefix = root + "/";
+	lock_guard<mutex> guard(scan_info->file_partitions_lock);
+	for (auto &file : files) {
+		if (!StringUtil::StartsWith(file.path, root_prefix)) {
+			continue;
+		}
+		// hidden files and directories (_SUCCESS, .hive-staging, ...) are not data
+		auto relative = file.path.substr(root_prefix.size());
+		bool hidden = false;
+		for (auto &component : StringUtil::Split(relative, '/')) {
+			if (IsHiddenComponent(component)) {
+				hidden = true;
+				break;
+			}
+		}
+		if (hidden) {
+			continue;
+		}
+		// the deepest registered partition directory the file lies in; files outside every partition read (in
+		// unregistered or pruned directories) are skipped
+		auto directory = file.path.substr(0, file.path.find_last_of('/'));
+		optional_idx partition_index;
+		while (directory.size() > root.size()) {
+			auto entry = partition_by_location.find(directory);
+			if (entry != partition_by_location.end()) {
+				partition_index = entry->second;
+				break;
+			}
+			auto parent = directory.find_last_of('/');
+			if (parent == string::npos) {
+				break;
+			}
+			directory = directory.substr(0, parent);
+		}
+		if (!partition_index.IsValid()) {
+			continue;
+		}
+		if (!scan_info->file_partitions.emplace(file.path, partition_index.GetIndex()).second) {
+			continue;
+		}
+		expanded_files.push_back(std::move(file));
+	}
+}
+
+bool HiveMultiFileList::ExpandNextPath() const {
+	// called with the list's lock held; runs one listing per call
+	PlanListings();
+	if (next_job >= jobs.size()) {
+		return false;
+	}
+	auto &job = jobs[next_job++];
+	auto &fs = FileSystem::GetFileSystem(client_context);
+	if (scan_info->partition_keys.empty()) {
+		if (scan_info->root_location.empty()) {
+			throw InvalidInputException("Hive table '%s' has no location", scan_info->Describe());
+		}
+		ListDataFiles(fs, scan_info->root_location, expanded_files);
+		return true;
+	}
+	if (job.root) {
+		ListRoot(fs, job.partitions);
+	} else {
+		ListPartition(fs, job.partitions[0]);
+	}
 	return true;
 }
 
@@ -143,6 +259,22 @@ FileExpandResult HiveMultiFileList::GetExpandResult() const {
 		return FileExpandResult::MULTIPLE_FILES;
 	}
 	return expanded_files.size() == 1 ? FileExpandResult::SINGLE_FILE : FileExpandResult::NO_FILES;
+}
+
+MultiFileCount HiveMultiFileList::GetFileCount(idx_t min_exact_count) const {
+	// The optimizer asks for a rough file count to estimate the cardinality. Listing the partitions for that would
+	// make planning (and EXPLAIN) pay for the listing; answer with what is known and at least one file per partition
+	// still to list.
+	lock_guard<mutex> lck(lock);
+	if (all_files_expanded) {
+		return MultiFileCount(expanded_files.size(), FileExpansionType::ALL_FILES_EXPANDED);
+	}
+	PlanListings();
+	idx_t remaining = 0;
+	for (idx_t i = next_job; i < jobs.size(); i++) {
+		remaining += jobs[i].root ? MaxValue<idx_t>(jobs[i].partitions.size(), 1) : 1;
+	}
+	return MultiFileCount(expanded_files.size() + remaining, FileExpansionType::NOT_ALL_FILES_KNOWN);
 }
 
 vector<OpenFileInfo> HiveMultiFileList::GetDisplayFileList(optional_idx max_files) const {

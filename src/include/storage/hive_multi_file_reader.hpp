@@ -10,6 +10,7 @@
 #include "glue_api.hpp"
 
 namespace duckdb {
+class FileSystem;
 
 //! Everything a Hive table scan knows before any data file is opened: the table schema as Glue defines it, the
 //! partitions Glue lists (values and locations) and the data files of every partition
@@ -47,8 +48,10 @@ struct HiveScanInfo : public TableFunctionInfo {
 
 //! The data files of a Hive table, listed lazily: nothing is listed until the scan asks for files, and the filters on
 //! the partition columns are applied to the partition values first (HiveMultiFileReader::ComplexFilterPushdown), so
-//! only the partitions a query reads are ever listed. Every partition is one directory listing (its location); an
-//! unpartitioned table is one listing of the root location.
+//! only the partitions a query reads are ever listed. When at least 'hive_partition_listing_threshold' of those
+//! partitions live below the table root, the root is listed once (recursively, one request per 1000 keys on S3) and
+//! the files are matched to their partitions by prefix; otherwise, and for partitions elsewhere, every partition is
+//! one listing of its location. An unpartitioned table is one listing of the root location.
 class HiveMultiFileList : public LazyMultiFileList {
 public:
 	//! 'partition_indexes' are the partitions (indexes into HiveScanInfo::partitions) to read
@@ -58,6 +61,8 @@ public:
 		return partition_indexes;
 	}
 	FileExpandResult GetExpandResult() const override;
+	//! Without listing: the number of partitions still to read as a lower bound (NOT_ALL_FILES_KNOWN)
+	MultiFileCount GetFileCount(idx_t min_exact_count = 0) const override;
 	vector<OpenFileInfo> GetDisplayFileList(optional_idx max_files = optional_idx()) const override;
 	unique_ptr<MultiFileList> Copy() const override;
 
@@ -65,13 +70,26 @@ protected:
 	bool ExpandNextPath() const override;
 
 private:
+	//! A directory listing still to do: the table root (for the partitions below it) or one partition
+	struct ListingJob {
+		bool root;
+		vector<idx_t> partitions;
+	};
+	//! Decide the listings from the partitions to read (once, under the lock)
+	void PlanListings() const;
+	void ListRoot(FileSystem &fs, const vector<idx_t> &partitions) const;
+	void ListPartition(FileSystem &fs, idx_t partition_index) const;
+
+private:
 	//! The context the list was created in; LazyMultiFileList keeps it as an optional_ptr that is const in const
 	//! members
 	ClientContext &client_context;
 	shared_ptr<HiveScanInfo> scan_info;
 	vector<idx_t> partition_indexes;
-	//! The next entry of 'partition_indexes' to list (the root for an unpartitioned table)
-	mutable idx_t next_partition = 0;
+	mutable bool planned = false;
+	mutable vector<ListingJob> jobs;
+	//! The next entry of 'jobs' to run
+	mutable idx_t next_job = 0;
 };
 
 //! Bind the reader for the file format (read_parquet, read_csv, read_json or read_avro) over the partitions of

@@ -52,6 +52,11 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          "and show up in the HTTP log. Default true.",
 	                          LogicalType::BOOLEAN, Value::BOOLEAN(true));
 
+	config.AddExtensionOption("hive_partition_listing_threshold",
+	                          "When a scan reads at least this many partitions below the table location, the location "
+	                          "is listed once (recursively) instead of one listing per partition. Default 10.",
+	                          LogicalType::UBIGINT, Value::UBIGINT(10));
+
 	// The HTTP client factory has to be in place before the first AWS client is constructed
 	InitAWSAPI();
 	RegisterGlueHttpClientFactory(instance);
