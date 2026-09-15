@@ -1,29 +1,21 @@
 # name: test/sql/hive/dml/insert/avro/insert_avro.test
 # description: CREATE TABLE ... WITH (format = 'avro') in Glue, INSERT writing avro files, reads through the catalog
-#              and through hive_scan(format := 'avro')
 # group: [avro]
 
-require httpfs
+#              and through hive_scan(format := 'avro')
 
-require aws
+require httpfs
 
 require avro
 
 require glue
 
-require-env DEFAULT_S3_LOCATION
+require-env GLUE_CATALOG_ID
 
 statement ok
-CREATE SECRET (
-  TYPE S3,
-  PROVIDER credential_chain,
-  REGION 'eu-central-1',
-  PROFILE 'personal'
-);
-
-statement ok
-attach '984506134640' as my_datalake (
+attach '{GLUE_CATALOG_ID}' as my_datalake (
     TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
     DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 
@@ -34,7 +26,7 @@ statement ok
 DROP TABLE IF EXISTS my_datalake.default.ins_avro_plain;
 
 #---------------------------------------------------------------------------
-# a partitioned avro table, like the docs' flight delays table
+# a partitioned avro table
 #---------------------------------------------------------------------------
 statement ok
 CREATE TABLE my_datalake.default.ins_avro (flight VARCHAR, delay INTEGER, year INTEGER) PARTITIONED BY (year) WITH (format = 'avro');
@@ -140,8 +132,9 @@ ORDER BY id;
 3	c	3.5
 
 statement ok
-attach '984506134640' as my_datalake (
+attach '{GLUE_CATALOG_ID}' as my_datalake (
     TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
     DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 

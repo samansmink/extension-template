@@ -19,6 +19,8 @@ struct GlueAttachOptions {
 	string region;
 	//! Name of the DuckDB (s3 / aws) secret to take credentials from, empty selects the default secret
 	string secret_name;
+	//! Optional Glue endpoint override, e.g. 'http://localhost:5000' for a local moto server; empty means AWS
+	string endpoint;
 	//! Optional S3 prefix for new databases, and for tables created without a location in databases that have no
 	//! LocationUri. Empty means: databases are created without a LocationUri and tables must be given a location
 	string default_location;

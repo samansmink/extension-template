@@ -6,26 +6,17 @@
 
 require httpfs
 
-require aws
-
 require glue
 
-require-env DEFAULT_S3_LOCATION
+require-env GLUE_CATALOG_ID
 
 statement ok
 SET active_grammar_extensions = ['glue_hive_ddl'];
 
 statement ok
-CREATE SECRET (
-  TYPE S3,
-  PROVIDER credential_chain,
-  REGION 'eu-central-1',
-  PROFILE 'personal'
-);
-
-statement ok
-attach '984506134640' as my_datalake (
+attach '{GLUE_CATALOG_ID}' as my_datalake (
     TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
     DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 
@@ -96,8 +87,9 @@ ALTER TABLE my_datalake.default.sql_orders_rename PARTITION (dt = '2014-05-15') 
 ----
 
 statement ok
-attach '984506134640' as verify_datalake (
+attach '{GLUE_CATALOG_ID}' as verify_datalake (
     TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
     DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 

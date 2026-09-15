@@ -17,13 +17,14 @@ Attach options:
 |--------------------|-----------------------------------------------------------------------------|
 | `SECRET`           | name of the s3/aws secret to take credentials from (default: default secret) |
 | `REGION`           | AWS region of the catalog (default: region of the secret)                    |
+| `ENDPOINT`         | Glue endpoint override, e.g. `http://localhost:5000` for a local moto server (default: AWS) |
 | `DEFAULT_LOCATION` | optional S3 prefix for new databases and for tables created without an explicit location (takes precedence over the Glue database LocationUri) |
 | `DEFAULT_SCHEMA`   | Glue database to use as the default schema                                   |
 
 ## Reading
 
 Hive tables stored as parquet (ParquetHiveSerDe) are scanned with `read_parquet` through a custom
-`MultiFileReader` (`HiveMultiFileReader`) that follows Athena's read semantics:
+`MultiFileReader` (`HiveMultiFileReader`) with these read semantics:
 
 - The data files are those directly below the location of every partition Glue lists (`GetPartitions`), or below
   the table location for an unpartitioned table. Partition locations need not follow the `<key>=<value>` layout.
@@ -91,11 +92,11 @@ SELECT * FROM hive_scan('s3://bucket/warehouse/orders',
 
 ## Partitions
 
-DuckDB has no `ALTER TABLE ... PARTITION` syntax, so the Athena partition statements are table functions. The
+DuckDB has no `ALTER TABLE ... PARTITION` syntax, so the Hive partition statements are table functions. The
 partition is given as a struct naming every partition key; values are stored as strings in Glue, in partition key
 order.
 
-| function | Athena statement |
+| function | Hive statement |
 |----------|------------------|
 | `glue_partitions('cat.db.t')` | `SHOW PARTITIONS`: one row per registered partition, a typed column per partition key plus `location` |
 | `CALL glue_add_partition('cat.db.t', {dt: '2016-05-14', country: 'IN'}, location := 's3://...', if_not_exists := false)` | `ALTER TABLE ADD [IF NOT EXISTS] PARTITION (...) [LOCATION ...]`; without `location` the partition lives at `<table location>/dt=2016-05-14/country=IN` |
@@ -104,7 +105,7 @@ order.
 | `CALL glue_set_partition_location('cat.db.t', {dt: '2016-05-14', country: 'IN'}, 's3://...')` | `ALTER TABLE PARTITION (...) SET LOCATION '...'` |
 | `CALL glue_set_table_location('cat.db.t', 's3://...')` | `ALTER TABLE SET LOCATION '...'`; existing partitions keep their locations, new ones land under the new location |
 
-The Athena SQL forms are available as well, through the `glue_hive_ddl` grammar extension the extension registers.
+The Hive SQL forms are available as well, through the `glue_hive_ddl` grammar extension the extension registers.
 Grammar extensions are switched on per connection:
 
 ```sql
@@ -148,6 +149,33 @@ SELECT request.type, request.url, request.headers['x-amz-target'], response.stat
 ```
 
 `SET glue_network_calls_via_duckdb = false` switches back to the SDK's own HTTP client.
+
+## Testing
+
+The tests are written against two `--test-config` files, which decide where the catalog and the storage are:
+
+- `test/configs/local_glue.json`: [moto](https://github.com/getmoto/moto) serving the Glue API and MinIO serving S3,
+  both from `scripts/docker-compose.yml`, which also creates the bucket and the Glue database `default`.
+- `test/configs/cloud_glue.json`: a live AWS Glue Data Catalog, with credentials from the AWS credential chain.
+
+A config creates the S3 secret (`on_init`) and sets `GLUE_CATALOG_ID`, `GLUE_ENDPOINT` and `DEFAULT_S3_LOCATION`,
+which the tests use in their ATTACH; tests are skipped without a config (`require-env GLUE_CATALOG_ID`). Tests under
+`test/sql/cloud/` read tables of the live account that the tests do not create and only run with the cloud config.
+
+```sh
+make glue-fixture        # docker compose up (creates the bucket and the 'default' database)
+make test-local          # unittest --test-config test/configs/local_glue.json 'test/sql/*'
+make glue-fixture-down
+
+AWS_PROFILE=... AWS_CONFIG_FILE=~/.aws/config AWS_SHARED_CREDENTIALS_FILE=~/.aws/credentials make test-cloud
+```
+
+Both targets set `AWS_EC2_METADATA_DISABLED=true`: the test runner hides `~/.aws`, and without a region from the
+environment or a profile the AWS SDK asks the EC2 instance metadata service for one, which off EC2 hangs for
+minutes per client. A test config can not export process environment variables, so this stays on the command.
+
+Every test creates the tables it needs and writes under its own `{TEST_DIR}` prefix, so runs do not interfere with
+each other; `make glue-fixture-down` throws the containers and their data away.
 
 ## Building
 

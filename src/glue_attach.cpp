@@ -61,6 +61,9 @@ unique_ptr<Catalog> GlueAttach::Attach(optional_ptr<StorageExtensionInfo> storag
 			attach_options.secret_name = StringUtil::Lower(entry.second.ToString());
 		} else if (lower_name == "region") {
 			attach_options.region = entry.second.ToString();
+		} else if (lower_name == "endpoint") {
+			attach_options.endpoint = entry.second.ToString();
+			StringUtil::RTrim(attach_options.endpoint, "/");
 		} else if (lower_name == "default_location") {
 			attach_options.default_location = entry.second.ToString();
 			StringUtil::RTrim(attach_options.default_location, "/");

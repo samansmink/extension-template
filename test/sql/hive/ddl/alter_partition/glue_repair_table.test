@@ -1,28 +1,17 @@
-# name: test/sql/hive/ddl/alter_partition/msck_repair_table.test
-# description: MSCK REPAIR TABLE for Hive tables in Glue, following the Athena MSCK REPAIR TABLE documentation. DuckDB
+# name: test/sql/hive/ddl/alter_partition/glue_repair_table.test
+# description: glue_repair_table for Hive tables in Glue: registering partitions found in S3.
 # group: [alter_partition]
-
-#              has no MSCK syntax, the statement is glue_repair_table(table), which returns the partitions it added
 
 require httpfs
 
-require aws
-
 require glue
 
-require-env DEFAULT_S3_LOCATION
+require-env GLUE_CATALOG_ID
 
 statement ok
-CREATE SECRET (
-  TYPE S3,
-  PROVIDER credential_chain,
-  REGION 'eu-central-1',
-  PROFILE 'personal'
-);
-
-statement ok
-attach '984506134640' as my_datalake (
+attach '{GLUE_CATALOG_ID}' as my_datalake (
     TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
     DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 
@@ -52,7 +41,7 @@ SELECT count(*) FROM glue_partitions('my_datalake.default.orders_repair');
 0
 
 #---------------------------------------------------------------------------
-# MSCK REPAIR TABLE orders;
+# test glue repair table;
 #---------------------------------------------------------------------------
 query II
 SELECT dt, country FROM glue_repair_table('my_datalake.default.orders_repair') ORDER BY dt, country;
@@ -96,7 +85,7 @@ SELECT id FROM my_datalake.default.orders_repair WHERE dt = '2016-05-16';
 4
 
 #---------------------------------------------------------------------------
-# MSCK REPAIR TABLE only adds partitions, it never removes them
+# glue_repair_table only adds partitions, it never removes them
 #---------------------------------------------------------------------------
 # a registered partition without any files in S3
 statement ok

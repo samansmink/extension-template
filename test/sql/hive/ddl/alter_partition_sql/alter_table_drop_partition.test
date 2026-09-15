@@ -6,26 +6,17 @@
 
 require httpfs
 
-require aws
-
 require glue
 
-require-env DEFAULT_S3_LOCATION
+require-env GLUE_CATALOG_ID
 
 statement ok
 SET active_grammar_extensions = ['glue_hive_ddl'];
 
 statement ok
-CREATE SECRET (
-  TYPE S3,
-  PROVIDER credential_chain,
-  REGION 'eu-central-1',
-  PROFILE 'personal'
-);
-
-statement ok
-attach '984506134640' as my_datalake (
+attach '{GLUE_CATALOG_ID}' as my_datalake (
     TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
     DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 
@@ -79,7 +70,7 @@ SELECT count(*) FROM read_parquet('{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/sql_
 1
 
 #---------------------------------------------------------------------------
-# ALTER TABLE orders DROP PARTITION (...), PARTITION (...);   (Athena: comma separated)
+# ALTER TABLE orders DROP PARTITION (...), PARTITION (...);   (comma separated)
 #---------------------------------------------------------------------------
 statement ok
 ALTER TABLE my_datalake.default.sql_orders_drop DROP
@@ -153,8 +144,9 @@ SELECT id FROM my_datalake.default.sql_orders_drop;
 1
 
 statement ok
-attach '984506134640' as verify_datalake (
+attach '{GLUE_CATALOG_ID}' as verify_datalake (
     TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
     DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 
