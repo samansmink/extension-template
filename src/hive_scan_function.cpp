@@ -164,7 +164,6 @@ unique_ptr<FunctionData> HiveScanBind(ClientContext &context, TableFunctionBindI
 		}
 	}
 
-	scan_info->CollectFiles(context);
 	names = scan_info->names;
 	return_types = scan_info->types;
 	unique_ptr<FunctionData> bind_data;

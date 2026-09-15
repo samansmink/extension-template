@@ -2,7 +2,7 @@
 # description: CREATE TABLE ... WITH (format = 'avro') in Glue, INSERT writing avro files, reads through the catalog
 # group: [avro]
 
-#              and through hive_scan(format := 'avro')
+require httpfs
 
 require httpfs
 

@@ -87,7 +87,6 @@ TableFunction GlueTable::GetHiveScanFunction(ClientContext &context, unique_ptr<
 		scan_info->partitions =
 		    GlueAPI::GetPartitions(context, glue_catalog, latest_info.database_name, latest_info.name);
 	}
-	scan_info->CollectFiles(context);
 	return BindHiveScan(context, std::move(scan_info), bind_data);
 }
 
