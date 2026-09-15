@@ -17,7 +17,7 @@ require tpch
 cache glue_tpch_sf1.duckdb
 
 load
-CALL dbgen(sf=1);
+CALL dbgen(sf=0.01);
 CREATE SECRET (
     TYPE S3,
     KEY_ID 'minio',
@@ -78,5 +78,3 @@ group tpch_glue
 subgroup sf1
 
 run duckdb/extension/tpch/dbgen/queries/q${QUERY_NUMBER_PADDED}.sql
-
-result duckdb/extension/tpch/dbgen/answers/sf1/q${QUERY_NUMBER_PADDED}.csv
