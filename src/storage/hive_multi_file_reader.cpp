@@ -156,6 +156,10 @@ TableFunction BindHiveScan(ClientContext &context, shared_ptr<HiveScanInfo> scan
 		param_map["columns"] = Value::STRUCT(data_columns);
 		param_map["header"] = Value::BOOLEAN(scan_info->header);
 		param_map["delim"] = Value(scan_info->delimiter);
+		param_map["quote"] = Value(scan_info->quote);
+		param_map["escape"] = Value(scan_info->escape);
+		// a quoted empty field is an empty string, not NULL (Hive reads it that way, and DuckDB writes it for one)
+		param_map["allow_quoted_nulls"] = Value::BOOLEAN(false);
 		break;
 	case HiveFileFormat::JSON:
 		// one JSON object per line, keys matched to the columns by name

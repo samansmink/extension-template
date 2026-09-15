@@ -46,12 +46,15 @@ name) and AvroSerDe with `read_avro` from the avro extension, which is loaded on
 
 - `CREATE SCHEMA` creates a Glue database with LocationUri `<DEFAULT_LOCATION>/<schema>`, or without a LocationUri
   when the catalog was attached without `DEFAULT_LOCATION`.
-- `CREATE TABLE ... [PARTITIONED BY (col, ...)] [WITH (format = 'parquet' | 'csv' | 'json', location = '...',
+- `CREATE TABLE ... [PARTITIONED BY (col, ...)] [WITH (format = 'parquet' | 'csv' | 'json' | 'avro', location = '...',
   <property> = '...')]` creates a parquet (default), csv (LazySimpleSerDe, `,` delimited, no header), json
   (JsonSerDe, one object per line) or avro (AvroSerDe)
   Hive table at `location`, else `<DEFAULT_LOCATION>/<database>/<table>`, else `<database LocationUri>/<table>`;
   without any of these the statement fails. Partition keys must be plain column names; they become Glue
   PartitionKeys and are listed last in the table's columns. Unknown `WITH` keys are stored as Glue table parameters.
+  For csv, `delimiter = '|'` sets the field delimiter (`field.delim`), `header = true` makes every file start with a
+  header line (`skip.header.line.count`), and `quote = '"'` / `escape = '\'` switch the table to OpenCSVSerde with
+  `separatorChar` / `quoteChar` / `escapeChar` (the escape character defaults to the quote character).
 - `INSERT INTO` and `CREATE TABLE ... AS` write files in the table's format into the table location (one file per partition
   touched, partition columns are not stored in the files) and register new partition directories in Glue with
   BatchCreatePartition. Because the partition keys are the last columns of the table, `INSERT ... VALUES` without a
@@ -82,8 +85,8 @@ SELECT * FROM hive_scan('s3://bucket/warehouse/orders',
 ```
 
 - `schema` (required): a struct of column name to DuckDB type name, data columns and partition columns.
-- `format`: `'parquet'` (default), `'csv'`, `'json'` or `'avro'`. For csv, `header := true` and `delim := '|'` describe the
-  files; csv columns are matched by position, json keys by name.
+- `format`: `'parquet'` (default), `'csv'`, `'json'` or `'avro'`. For csv, `header := true`, `delim := '|'`,
+  `quote := '"'` and `escape := '\'` describe the files; csv columns are matched by position, json keys by name.
 - `partitions`: one struct per partition with a value for every partition key and an optional `location`; without
   a location the partition lives at `<root>/<key>=<value>/...`. The partition keys are the struct fields other than
   `location`, in that order, unless `partition_keys := [...]` names them. Without `partitions` the table is

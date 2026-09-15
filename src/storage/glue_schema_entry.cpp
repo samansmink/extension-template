@@ -72,6 +72,25 @@ GlueCreateTableOptions GlueSchemaEntry::ParseCreateTableOptions(ClientContext &c
 		} else if (StringUtil::CIEquals(key, "location")) {
 			result.location = string_value;
 			StringUtil::RTrim(result.location, "/");
+		} else if (StringUtil::CIEquals(key, "delimiter") || StringUtil::CIEquals(key, "quote") ||
+		           StringUtil::CIEquals(key, "escape")) {
+			// the csv dialect: Hive SerDes take single characters
+			if (string_value.size() != 1) {
+				throw BinderException("CREATE TABLE option '%s' must be a single character, got '%s'", key,
+				                      string_value);
+			}
+			if (StringUtil::CIEquals(key, "delimiter")) {
+				result.csv_delimiter = string_value;
+			} else if (StringUtil::CIEquals(key, "quote")) {
+				result.csv_quote = string_value;
+			} else {
+				result.csv_escape = string_value;
+			}
+		} else if (StringUtil::CIEquals(key, "header")) {
+			// csv files with a header line: Hive's "TBLPROPERTIES ('skip.header.line.count' = '1')"
+			if (value.DefaultCastAs(LogicalType::BOOLEAN).GetValue<bool>()) {
+				result.parameters["skip.header.line.count"] = "1";
+			}
 		} else {
 			// everything else is a table property, stored in Glue's table parameters (like Hive / Trino do)
 			result.parameters[key] = string_value;
@@ -144,6 +163,9 @@ optional_ptr<CatalogEntry> GlueSchemaEntry::CreateTable(CatalogTransaction trans
 	    options.location.empty() ? glue_catalog.GetTableLocation(database_info, table_name) : options.location;
 	table.parameters = options.parameters;
 	table.file_format = options.format;
+	table.csv_delimiter = options.csv_delimiter;
+	table.csv_quote = options.csv_quote;
+	table.csv_escape = options.csv_escape;
 	for (auto &column : base.columns.Physical()) {
 		if (is_partition_column(column.Name().GetIdentifierName())) {
 			continue;

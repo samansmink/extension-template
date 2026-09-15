@@ -142,6 +142,24 @@ bool GlueTableInfo::HasHeader() const {
 	return GetParameter("skip.header.line.count") == "1";
 }
 
+string GlueTableInfo::GetQuoteCharacter() const {
+	// OpenCSVSerde: quoteChar. LazySimpleSerDe does not quote at all, but DuckDB writes (and reads) quoted fields
+	// with the '"' it defaults to, which is also OpenCSVSerde's default
+	auto quote = GetSerdeParameter("quoteChar");
+	if (quote.empty()) {
+		return "\"";
+	}
+	return quote;
+}
+
+string GlueTableInfo::GetEscapeCharacter() const {
+	auto escape = GetSerdeParameter("escapeChar");
+	if (escape.empty()) {
+		return GetQuoteCharacter();
+	}
+	return escape;
+}
+
 GlueTableFormat GlueTableInfo::GetFormat() const {
 	// Open table formats register themselves through the 'table_type' parameter
 	auto table_type = StringUtil::Upper(GetParameter("table_type"));
@@ -567,14 +585,25 @@ void GlueAPI::CreateHiveTable(ClientContext &context, GlueCatalog &catalog, cons
 		parameters.emplace("classification", "parquet");
 		break;
 	case HiveFileFormat::CSV:
-		// Hive's "ROW FORMAT DELIMITED FIELDS TERMINATED BY ','" without a header line
-		serde_info.SetSerializationLibrary("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe");
-		serde_info.AddParameters("field.delim", ",");
-		serde_info.AddParameters("serialization.format", ",");
+		if (table.csv_quote.empty() && table.csv_escape.empty()) {
+			// Hive's "ROW FORMAT DELIMITED FIELDS TERMINATED BY '<delimiter>'": no quoting
+			serde_info.SetSerializationLibrary("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe");
+			serde_info.AddParameters("field.delim", table.csv_delimiter);
+			serde_info.AddParameters("serialization.format", table.csv_delimiter);
+		} else {
+			// quoted fields: Hive's "ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.OpenCSVSerde' WITH
+			// SERDEPROPERTIES (...)", the escape character defaults to the quote character like DuckDB's COPY
+			auto quote = table.csv_quote.empty() ? "\"" : table.csv_quote;
+			auto escape = table.csv_escape.empty() ? quote : table.csv_escape;
+			serde_info.SetSerializationLibrary("org.apache.hadoop.hive.serde2.OpenCSVSerde");
+			serde_info.AddParameters("separatorChar", table.csv_delimiter);
+			serde_info.AddParameters("quoteChar", quote);
+			serde_info.AddParameters("escapeChar", escape);
+		}
 		storage_descriptor.SetInputFormat("org.apache.hadoop.mapred.TextInputFormat");
 		storage_descriptor.SetOutputFormat("org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat");
 		parameters.emplace("classification", "csv");
-		parameters.emplace("delimiter", ",");
+		parameters.emplace("delimiter", table.csv_delimiter);
 		break;
 	case HiveFileFormat::JSON:
 		// one JSON object per line

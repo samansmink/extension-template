@@ -13,8 +13,12 @@ struct CreateTableInfo;
 struct GlueCreateTableOptions {
 	//! Optional explicit S3 location of the table
 	string location;
-	//! The file format of the table (format = 'parquet' | 'csv' | 'json'), parquet by default
+	//! The file format of the table (format = 'parquet' | 'csv' | 'json' | 'avro'), parquet by default
 	HiveFileFormat format = HiveFileFormat::PARQUET;
+	//! csv only: delimiter, quote and escape (single characters; quote and escape empty unless given)
+	string csv_delimiter = ",";
+	string csv_quote;
+	string csv_escape;
 	//! Every other option is stored as a table parameter in Glue
 	unordered_map<string, string> parameters;
 };
