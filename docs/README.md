@@ -189,6 +189,15 @@ MinIO does not have (`make glue-fixture` first; the benchmark runner needs a bui
 AWS_EC2_METADATA_DISABLED=true ./build/relassert/benchmark/benchmark_runner benchmark/heavily_partitioned_table.benchmark
 ```
 
+`benchmark/tpch/sf1/` runs the 22 TPC-H queries at SF1 against Hive tables in the Glue database `bench_tpch_sf1`
+(`lineitem` partitioned by `l_shipdate`, `orders` by `o_orderdate`) and checks the answers. The first run generates
+the data with `dbgen` and writes it with CTAS, which takes a while; later runs reuse
+`duckdb_benchmark_data/glue_tpch_sf1.duckdb`, which `make glue-fixture` removes:
+
+```sh
+AWS_EC2_METADATA_DISABLED=true ./build/relassert/benchmark/benchmark_runner 'benchmark/tpch/sf1/.*'
+```
+
 `.github/workflows/Regression.yml` runs them for a PR and for its merge base and compares the timings.
 
 ## Building

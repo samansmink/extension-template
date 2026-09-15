@@ -1,0 +1,82 @@
+# name: ${FILE_PATH}
+# description: ${DESCRIPTION}
+# group: [sf1]
+
+# TPC-H SF1 generated locally with dbgen and written to Hive tables in the local Glue (moto) + S3 (MinIO) with CTAS:
+# lineitem partitioned by l_shipdate and orders by o_orderdate, the other tables unpartitioned. The local tables are
+# dropped after the load, so the queries read the Glue tables; the cache only keeps a marker table.
+
+require parquet
+
+require httpfs
+
+require glue
+
+require tpch
+
+cache glue_tpch_sf1.duckdb
+
+load
+CALL dbgen(sf=1);
+CREATE SECRET (
+    TYPE S3,
+    KEY_ID 'minio',
+    SECRET 'minio123',
+    REGION 'us-east-1',
+    ENDPOINT 'localhost:9100',
+    USE_SSL false,
+    URL_STYLE 'path'
+);
+ATTACH '123456789012' AS my_datalake (
+    TYPE glue,
+    ENDPOINT 'http://localhost:5555',
+    DEFAULT_LOCATION 's3://glue-test/warehouse/benchmark'
+);
+CREATE SCHEMA IF NOT EXISTS my_datalake.bench_tpch_sf1;
+CREATE TABLE IF NOT EXISTS my_datalake.bench_tpch_sf1.lineitem PARTITIONED BY (l_shipdate) AS SELECT * FROM lineitem;
+CREATE TABLE IF NOT EXISTS my_datalake.bench_tpch_sf1.orders PARTITIONED BY (o_orderdate) AS SELECT * FROM orders;
+CREATE TABLE IF NOT EXISTS my_datalake.bench_tpch_sf1.customer AS SELECT * FROM customer;
+CREATE TABLE IF NOT EXISTS my_datalake.bench_tpch_sf1.part AS SELECT * FROM part;
+CREATE TABLE IF NOT EXISTS my_datalake.bench_tpch_sf1.partsupp AS SELECT * FROM partsupp;
+CREATE TABLE IF NOT EXISTS my_datalake.bench_tpch_sf1.supplier AS SELECT * FROM supplier;
+CREATE TABLE IF NOT EXISTS my_datalake.bench_tpch_sf1.nation AS SELECT * FROM nation;
+CREATE TABLE IF NOT EXISTS my_datalake.bench_tpch_sf1.region AS SELECT * FROM region;
+DROP TABLE lineitem;
+DROP TABLE orders;
+DROP TABLE customer;
+DROP TABLE part;
+DROP TABLE partsupp;
+DROP TABLE supplier;
+DROP TABLE nation;
+DROP TABLE region;
+CREATE TABLE glue_tpch_sf1_loaded AS SELECT 1 AS loaded;
+USE my_datalake.bench_tpch_sf1;
+
+reload
+CREATE SECRET (
+    TYPE S3,
+    KEY_ID 'minio',
+    SECRET 'minio123',
+    REGION 'us-east-1',
+    ENDPOINT 'localhost:9100',
+    USE_S bbSL false,
+    URL_STYLE 'path'
+);
+ATTACH '123456789012' AS my_datalake (
+    TYPE glue,
+    ENDPOINT 'http://localhost:5555',
+    DEFAULT_LOCATION 's3://glue-test/warehouse/benchmark'
+);
+USE my_datalake.bench_tpch_sf1;
+SET enable_external_file_cache=false;
+SET debug_fs_delay_mean_ms=20;
+
+
+
+name Q${QUERY_NUMBER_PADDED}
+group tpch_glue
+subgroup sf1
+
+run duckdb/extension/tpch/dbgen/queries/q${QUERY_NUMBER_PADDED}.sql
+
+result duckdb/extension/tpch/dbgen/answers/sf1/q${QUERY_NUMBER_PADDED}.csv

@@ -14,6 +14,7 @@ include extension-ci-tools/makefiles/duckdb_extension.Makefile
 # bucket and the Glue database 'default')
 GLUE_COMPOSE=docker compose -f scripts/docker-compose.yml
 glue-fixture:
+	rm -f duckdb_benchmark_data/*.duckdb duckdb_benchmark_data/*.duckdb.wal
 	$(GLUE_COMPOSE) up -d --wait
 glue-fixture-down:
 	$(GLUE_COMPOSE) down -v

@@ -45,6 +45,25 @@ FROM range(0, 300) AS t(d)
 CROSS JOIN range(1, 10001) AS u(r)
 WHERE NOT EXISTS (SELECT 1 FROM my_datalake.default.many_partitioned_tables);
 
+reload
+CREATE SECRET (
+    TYPE S3,
+    KEY_ID 'minio',
+    SECRET 'minio123',
+    REGION 'us-east-1',
+    ENDPOINT 'localhost:9100',
+    USE_S bbSL false,
+    URL_STYLE 'path'
+);
+ATTACH '123456789012' AS my_datalake (
+    TYPE glue,
+    ENDPOINT 'http://localhost:5555',
+    DEFAULT_LOCATION 's3://glue-test/warehouse/benchmark'
+);
+USE my_datalake.bench_tpch_sf1;
+SET enable_external_file_cache=false;
+SET debug_fs_delay_mean_ms=20;
+
 run
 SET enable_external_file_cache=false;
 SET debug_fs_delay_mean_ms=20;
