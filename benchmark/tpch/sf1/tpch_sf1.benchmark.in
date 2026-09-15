@@ -51,6 +51,7 @@ DROP TABLE nation;
 DROP TABLE region;
 CREATE TABLE glue_tpch_sf1_loaded AS SELECT 1 AS loaded;
 USE my_datalake.bench_tpch_sf1;
+SET enable_external_file_cache=false;
 
 reload
 CREATE SECRET (
@@ -59,7 +60,7 @@ CREATE SECRET (
     SECRET 'minio123',
     REGION 'us-east-1',
     ENDPOINT 'localhost:9100',
-    USE_S bbSL false,
+    USE_SSL false,
     URL_STYLE 'path'
 );
 ATTACH '123456789012' AS my_datalake (
@@ -69,7 +70,6 @@ ATTACH '123456789012' AS my_datalake (
 );
 USE my_datalake.bench_tpch_sf1;
 SET enable_external_file_cache=false;
-SET debug_fs_delay_mean_ms=20;
 
 
 
