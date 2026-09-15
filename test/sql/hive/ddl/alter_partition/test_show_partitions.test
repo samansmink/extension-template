@@ -1,9 +1,6 @@
-# name: test/sql/hive/ddl/alter_partition/show_partitions.test
-# description: SHOW PARTITIONS and "table$partitions" for Hive tables in Glue: listing the partitions
+# name: test/sql/hive/ddl/alter_partition/test_show_partitions.test
+# description: test show partitions in a hive table
 # group: [alter_partition]
-
-#              registered in the Glue metadata. DuckDB has neither syntax, the table function is glue_partitions(table)
-#              with one typed column per partition key plus the partition location
 
 require httpfs
 
@@ -33,7 +30,7 @@ INSERT INTO my_datalake.default.flight_delays VALUES
     ('AA1', 5, 2007), ('AA2', 0, 2015), ('AA3', 12, 1999), ('AA4', 3, 1993), ('AA5', 7, 2015);
 
 #---------------------------------------------------------------------------
-# SHOW PARTITIONS flight_delays_csv  (unsorted, one <key>=<value> string per partition)
+# glue_partitions(flight_delays_csv)  (unsorted, one <key>=<value> string per partition)
 #---------------------------------------------------------------------------
 query I
 SELECT 'year=' || year FROM glue_partitions('my_datalake.default.flight_delays') ORDER BY 1;
@@ -44,7 +41,7 @@ year=2007
 year=2015
 
 #---------------------------------------------------------------------------
-# SELECT * FROM "flight_delays_csv$partitions" ORDER BY year  (typed partition columns, sorted)
+# SELECT * FROM glue_partitions(flight_delays_csv) ORDER BY year  (typed partition columns, sorted)
 #---------------------------------------------------------------------------
 query I
 SELECT year FROM glue_partitions('my_datalake.default.flight_delays') ORDER BY year;
@@ -82,7 +79,7 @@ dt=2009-04-13-18-15
 dt=2009-04-14-00-20
 
 #---------------------------------------------------------------------------
-# SHOW PARTITIONS lists the partitions in metadata, not the partitions in the file system
+# glue_partitions shows the partitions in metadata, not the partitions in the file system
 #---------------------------------------------------------------------------
 statement ok
 COPY (SELECT 'AA9' AS flight, 1 AS delay) TO '{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/flight_delays/year=2020/data.parquet';
