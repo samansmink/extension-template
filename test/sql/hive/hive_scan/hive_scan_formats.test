@@ -1,4 +1,4 @@
-# name: test/sql/hive_scan/hive_scan_formats.test
+# name: test/sql/hive/hive_scan/hive_scan_formats.test
 # description: hive_scan() over local parquet, csv and json Hive layouts (no catalog, no cloud)
 # group: [hive_scan]
 
