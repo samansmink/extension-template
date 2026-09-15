@@ -16,7 +16,7 @@ jobs:
     name: Build extension binaries
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
     with:
-      duckdb_version: 79469d161a61de178d8cae745c901cbc9ba3cc15
+      duckdb_version: b016ea967a0098c67e84458d523d0cebc1c1ac47
       ci_tools_version: main
       extension_name: glue
 
@@ -24,7 +24,7 @@ jobs:
     name: Code Quality Check
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v1.5-variegata
     with:
-      duckdb_version: 79469d161a61de178d8cae745c901cbc9ba3cc15
+      duckdb_version: b016ea967a0098c67e84458d523d0cebc1c1ac47
       ci_tools_version: main
       extension_name: glue
       format_checks: 'format'
