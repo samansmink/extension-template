@@ -5,14 +5,14 @@
 # Ports 5555 and 9100 are used so that they do not clash with macOS (5000) and other MinIO instances (9000).
 services:
   moto:
-    image: motoserver/moto:latest
+    image: motoserver/moto:5.2.3
     container_name: glue-moto
     ports:
       - "5555:5000"
     environment:
       - MOTO_PORT=5000
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: glue-minio
     ports:
       - "9100:9000"
