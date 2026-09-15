@@ -1,7 +1,8 @@
 # name: test/sql/hive/dml/insert/avro/insert_avro.test
 # description: CREATE TABLE ... WITH (format = 'avro') in Glue, INSERT writing avro files, reads through the catalog
-#              and through hive_scan(format := 'avro')
 # group: [avro]
+
+#              and through hive_scan(format := 'avro')
 
 require httpfs
 
