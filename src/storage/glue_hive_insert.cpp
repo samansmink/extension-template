@@ -86,9 +86,11 @@ PhysicalOperator &GlueHiveInsert::PlanWrite(ClientContext &context, PhysicalPlan
 		ExtensionHelper::AutoLoadExtension(context, "avro");
 		break;
 	case HiveFileFormat::CSV:
-		// Hive CSV files: no header line, the table's delimiter
+		// Hive CSV files: the table's dialect, a header line only when the table says so
 		copy_options[Identifier("header")] = {Value::BOOLEAN(table_info.HasHeader())};
 		copy_options[Identifier("delimiter")] = {Value(table_info.GetFieldDelimiter())};
+		copy_options[Identifier("quote")] = {Value(table_info.GetQuoteCharacter())};
+		copy_options[Identifier("escape")] = {Value(table_info.GetEscapeCharacter())};
 		break;
 	case HiveFileFormat::JSON: {
 		// DuckDB writes JSON the way COPY ... (FORMAT json) does: every row becomes one JSON object (to_json over a

@@ -27,8 +27,10 @@ struct HiveScanInfo : public TableFunctionInfo {
 	vector<LogicalType> types;
 	//! The file format of the data files
 	HiveFileFormat file_format = HiveFileFormat::PARQUET;
-	//! CSV only: the field delimiter and whether every file starts with a header line
+	//! CSV only: the dialect and whether every file starts with a header line
 	string delimiter = ",";
+	string quote = "\"";
+	string escape = "\"";
 	bool header = false;
 	//! The partition keys, in order
 	vector<string> partition_keys;

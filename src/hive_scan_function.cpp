@@ -136,6 +136,10 @@ unique_ptr<FunctionData> HiveScanBind(ClientContext &context, TableFunctionBindI
 			scan_info->file_format = HiveFileFormatFromString(option.second.GetValue<string>());
 		} else if (name == "delim") {
 			scan_info->delimiter = option.second.GetValue<string>();
+		} else if (name == "quote") {
+			scan_info->quote = option.second.GetValue<string>();
+		} else if (name == "escape") {
+			scan_info->escape = option.second.GetValue<string>();
 		} else if (name == "header") {
 			scan_info->header = option.second.GetValue<bool>();
 		}
@@ -203,6 +207,8 @@ TableFunction GetHiveScanFunction(DatabaseInstance &db) {
 	function.named_parameters["partitions"] = LogicalType::ANY;
 	function.named_parameters["format"] = LogicalType::VARCHAR;
 	function.named_parameters["delim"] = LogicalType::VARCHAR;
+	function.named_parameters["quote"] = LogicalType::VARCHAR;
+	function.named_parameters["escape"] = LogicalType::VARCHAR;
 	function.named_parameters["header"] = LogicalType::BOOLEAN;
 	function.bind = HiveScanBind;
 	function.bind_replace = nullptr;
