@@ -1,6 +1,8 @@
 #pragma once
 
+#include "duckdb/common/multi_file/multi_file_list.hpp"
 #include "duckdb/common/multi_file/multi_file_reader.hpp"
+#include "duckdb/common/mutex.hpp"
 #include "duckdb/common/open_file_info.hpp"
 #include "duckdb/common/unordered_map.hpp"
 #include "duckdb/function/table_function.hpp"
@@ -30,9 +32,9 @@ struct HiveScanInfo : public TableFunctionInfo {
 	vector<string> partition_keys;
 	//! The partitions registered in Glue (empty for an unpartitioned table)
 	vector<GluePartitionInfo> partitions;
-	//! The data files to scan
-	vector<OpenFileInfo> files;
-	//! The partition (index into 'partitions') each data file belongs to
+	//! The partition (index into 'partitions') each listed data file belongs to. Filled in while the file list expands,
+	//! which can run concurrently with opening files.
+	mutable mutex file_partitions_lock;
 	unordered_map<string, idx_t> file_partitions;
 
 	//! The index of a partition key by name, or DConstants::INVALID_INDEX
@@ -41,14 +43,40 @@ struct HiveScanInfo : public TableFunctionInfo {
 	const GluePartitionInfo &GetPartitionOfFile(const string &path) const;
 	//! A description of the table for error messages
 	string Describe() const;
-	//! List the data files: those directly below the location of every partition, or directly below the root
-	//! location for an unpartitioned table. Files named _* or .* are skipped.
-	void CollectFiles(ClientContext &context);
 };
 
-//! Bind the reader for the file format (read_parquet, read_csv or read_json) over the files of 'scan_info' with the
-//! HiveMultiFileReader. Returns the bound table function and fills in 'bind_data'; the scan produces exactly the
-//! columns of 'scan_info'.
+//! The data files of a Hive table, listed lazily: nothing is listed until the scan asks for files, and the filters on
+//! the partition columns are applied to the partition values first (HiveMultiFileReader::ComplexFilterPushdown), so
+//! only the partitions a query reads are ever listed. Every partition is one directory listing (its location); an
+//! unpartitioned table is one listing of the root location.
+class HiveMultiFileList : public LazyMultiFileList {
+public:
+	//! 'partition_indexes' are the partitions (indexes into HiveScanInfo::partitions) to read
+	HiveMultiFileList(ClientContext &context, shared_ptr<HiveScanInfo> scan_info, vector<idx_t> partition_indexes);
+
+	const vector<idx_t> &PartitionIndexes() const {
+		return partition_indexes;
+	}
+	FileExpandResult GetExpandResult() const override;
+	vector<OpenFileInfo> GetDisplayFileList(optional_idx max_files = optional_idx()) const override;
+	unique_ptr<MultiFileList> Copy() const override;
+
+protected:
+	bool ExpandNextPath() const override;
+
+private:
+	//! The context the list was created in; LazyMultiFileList keeps it as an optional_ptr that is const in const
+	//! members
+	ClientContext &client_context;
+	shared_ptr<HiveScanInfo> scan_info;
+	vector<idx_t> partition_indexes;
+	//! The next entry of 'partition_indexes' to list (the root for an unpartitioned table)
+	mutable idx_t next_partition = 0;
+};
+
+//! Bind the reader for the file format (read_parquet, read_csv, read_json or read_avro) over the partitions of
+//! 'scan_info' with the HiveMultiFileReader. Returns the bound table function and fills in 'bind_data'; the scan
+//! produces exactly the columns of 'scan_info'. No file is listed or opened here.
 TableFunction BindHiveScan(ClientContext &context, shared_ptr<HiveScanInfo> scan_info,
                            unique_ptr<FunctionData> &bind_data);
 
