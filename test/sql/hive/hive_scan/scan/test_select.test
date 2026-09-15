@@ -1,6 +1,6 @@
-# name: test/sql/hive/dml/select.test
+# name: test/sql/hive/hive_scan/scan/test_select.test
 # description: SELECT over Hive tables in Glue: filters, CTEs, joins, aggregation, set operations, ordering and sampling
-# group: [dml]
+# group: [scan]
 
 require httpfs
 

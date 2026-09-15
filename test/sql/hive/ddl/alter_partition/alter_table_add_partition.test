@@ -1,36 +1,27 @@
 # name: test/sql/hive/ddl/alter_partition/alter_table_add_partition.test
-# description: ALTER TABLE ADD [IF NOT EXISTS] PARTITION (...) [LOCATION ...] for Hive tables in Glue, following the
+# description: ALTER TABLE ADD [IF NOT EXISTS] PARTITION (...) [LOCATION ...] for Hive tables in Glue: adding
 # group: [alter_partition]
 
-#              examples in the Athena ALTER TABLE ADD PARTITION documentation. DuckDB has no ADD PARTITION syntax, the
-#              statement is glue_add_partition(table, partition_spec, location := ..., if_not_exists := ...)
+#              partitions at the default location and at specific partition value locations. DuckDB has no ADD PARTITION
+#              syntax, the statement is glue_add_partition(table, partition_spec, location := ..., if_not_exists := ...)
 
 require httpfs
 
-require aws
-
 require glue
 
-require-env DEFAULT_S3_LOCATION
+require-env GLUE_CATALOG_ID
 
 statement ok
-CREATE SECRET (
-  TYPE S3,
-  PROVIDER credential_chain,
-  REGION 'eu-central-1',
-  PROFILE 'personal'
-);
-
-statement ok
-attach '984506134640' as my_datalake (
+attach '{GLUE_CATALOG_ID}' as my_datalake (
     TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
     DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 
 statement ok
 DROP TABLE IF EXISTS my_datalake.default.orders_add;
 
-# the docs' orders table: Hive-style partitioned by dt and country
+# an orders table: Hive-style partitioned by dt and country
 statement ok
 CREATE TABLE my_datalake.default.orders_add (id INTEGER, amount DOUBLE, dt VARCHAR, country VARCHAR) PARTITIONED BY (dt, country);
 
@@ -79,7 +70,7 @@ SELECT id, amount FROM my_datalake.default.orders_add ORDER BY id;
 
 #---------------------------------------------------------------------------
 # ALTER TABLE orders ADD PARTITION (dt = '2016-05-31', country = 'IN') PARTITION (dt = '2016-06-01', country = 'IN');
-# (one call per partition, as in the docs' batching example)
+# (one call per partition)
 #---------------------------------------------------------------------------
 statement ok
 CALL glue_add_partition('my_datalake.default.orders_add', {dt: '2016-05-31', country: 'IN'});
@@ -154,8 +145,9 @@ CALL glue_add_partition('memory.main.nope', {dt: '2016-07-01', country: 'IN'});
 
 # the second attach sees the partitions registered in Glue
 statement ok
-attach '984506134640' as verify_datalake (
+attach '{GLUE_CATALOG_ID}' as verify_datalake (
     TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
     DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 

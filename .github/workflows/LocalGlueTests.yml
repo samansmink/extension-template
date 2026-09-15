@@ -1,0 +1,55 @@
+# Runs the sqllogictests against a local Glue (moto) + S3 (MinIO), see scripts/docker-compose.yml and docs/README.md.
+#
+# NOTE: written alongside the local harness and not yet exercised in CI; the build step mirrors `make relassert`
+# (a release build with `make` works the same, adjust the build directory below).
+
+name: Local Glue tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  local-glue-tests:
+    runs-on: ubuntu-latest
+
+    env:
+      VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+      GEN: ninja
+      # the AWS SDK would otherwise ask the EC2 metadata service for a region, which hangs off EC2
+      AWS_EC2_METADATA_DISABLED: "true"
+      GLUE_ENDPOINT: http://localhost:5555
+      S3_ENDPOINT: localhost:9100
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: docker/setup-compose-action@v1
+
+      - name: Start Glue (moto) and S3 (MinIO)
+        run: docker compose -f scripts/docker-compose.yml up -d --wait
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -y -qq
+          sudo apt-get install -y -qq ninja-build ccache
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: 84bab45d415d22042bd0b9081aea57f362da3f35
+
+      - name: Build
+        run: make release
+
+      - name: Run tests
+        run: ./build/release/test/unittest --test-config test/configs/local_glue.json 'test/sql/*'
+
+      - name: Server logs
+        if: always()
+        run: docker compose -f scripts/docker-compose.yml logs --no-color moto | tail -200

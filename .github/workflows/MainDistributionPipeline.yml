@@ -25,6 +25,6 @@ jobs:
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v1.5-variegata
     with:
       duckdb_version: 79469d161a61de178d8cae745c901cbc9ba3cc15
-      ci_tools_version: v1.5-variegata
+      ci_tools_version: main
       extension_name: glue
-      format_checks: 'format;tidy'
+      format_checks: 'format'

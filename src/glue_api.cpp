@@ -320,15 +320,33 @@ std::shared_ptr<Aws::Glue::GlueClient> GlueAPI::GetClient(ClientContext &context
 	auto &region = catalog.options.region;
 	// The HTTP transport is chosen when the SDK client is built, so a changed setting needs a new client
 	auto via_duckdb = GlueNetworkCallsViaDuckDB(DatabaseInstance::GetDatabase(context));
-	auto cache_key = key_id + "\x1f" + session_token + "\x1f" + region + "\x1f" + (via_duckdb ? "duckdb" : "sdk");
+	auto &endpoint = catalog.options.endpoint;
+	auto cache_key = key_id + "\x1f" + session_token + "\x1f" + region + "\x1f" + endpoint + "\x1f" +
+	                 (via_duckdb ? "duckdb" : "sdk");
 
 	lock_guard<mutex> guard(catalog.client_lock);
 	if (catalog.glue_client && catalog.client_cache_key == cache_key) {
 		return catalog.glue_client;
 	}
 
+	// NOTE: without a region in the environment (AWS_DEFAULT_REGION / AWS_REGION) or the profile file, the SDK's
+	// configuration constructor asks the EC2 instance metadata service for one before the region below is set;
+	// off EC2 that is a connect timeout with retries. Set AWS_EC2_METADATA_DISABLED=true in such environments.
 	Aws::Glue::GlueClientConfiguration config;
 	config.region = region;
+	if (!endpoint.empty()) {
+		// a Glue compatible server elsewhere (e.g. moto for tests): 'http://host:port' or 'https://host:port'
+		auto lower = StringUtil::Lower(endpoint);
+		if (StringUtil::StartsWith(lower, "http://")) {
+			config.scheme = Aws::Http::Scheme::HTTP;
+			config.endpointOverride = endpoint.substr(7);
+		} else if (StringUtil::StartsWith(lower, "https://")) {
+			config.scheme = Aws::Http::Scheme::HTTPS;
+			config.endpointOverride = endpoint.substr(8);
+		} else {
+			config.endpointOverride = endpoint;
+		}
+	}
 	auto &cert_path = GetCURLCertPath();
 	if (!cert_path.empty()) {
 		config.caFile = cert_path;
@@ -549,7 +567,7 @@ void GlueAPI::CreateHiveTable(ClientContext &context, GlueCatalog &catalog, cons
 		parameters.emplace("classification", "parquet");
 		break;
 	case HiveFileFormat::CSV:
-		// Athena's "ROW FORMAT DELIMITED FIELDS TERMINATED BY ','" without a header line
+		// Hive's "ROW FORMAT DELIMITED FIELDS TERMINATED BY ','" without a header line
 		serde_info.SetSerializationLibrary("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe");
 		serde_info.AddParameters("field.delim", ",");
 		serde_info.AddParameters("serialization.format", ",");

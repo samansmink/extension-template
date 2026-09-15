@@ -1,0 +1,273 @@
+# name: test/sql/hive/hive_scan/scan_partitioned/test_partition_pushdown.test
+# description: Filters on partition columns prune partitions before anything is listed: only the directories of the
+# group: [scan_partitioned]
+
+#              partitions a query reads get an S3 ListObjects call. Counted through the HTTP log.
+
+require httpfs
+
+require glue
+
+require-env GLUE_CATALOG_ID
+
+statement ok
+attach '{GLUE_CATALOG_ID}' as my_datalake (
+    TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
+    DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
+);
+
+statement ok
+DROP TABLE IF EXISTS my_datalake.default.pp_orders;
+
+statement ok
+SET enable_external_file_cache=false;
+
+statement ok
+CREATE TABLE my_datalake.default.pp_orders (id INTEGER, amount DOUBLE, dt VARCHAR, country VARCHAR) PARTITIONED BY (dt, country);
+
+# six partitions below the table location ...
+statement ok
+INSERT INTO my_datalake.default.pp_orders VALUES
+    (1, 10.0, '2016-05-14', 'IN'), (2, 11.0, '2016-05-14', 'US'),
+    (3, 20.0, '2016-05-15', 'IN'), (4, 21.0, '2016-05-15', 'US'),
+    (5, 30.0, '2016-05-16', 'IN'), (6, 31.0, '2016-05-16', 'US');
+
+# ... and one at a custom location outside it
+statement ok
+COPY (SELECT 7 AS id, 40.0 AS amount) TO '{DEFAULT_S3_LOCATION}/{TEST_DIR}/custom_in/data.parquet';
+
+statement ok
+CALL glue_add_partition('my_datalake.default.pp_orders', {dt: '2016-06-01', country: 'IN'}, location := '{DEFAULT_S3_LOCATION}/{TEST_DIR}/custom_in');
+
+query I
+SELECT count(*) FROM glue_partitions('my_datalake.default.pp_orders');
+----
+7
+
+# The directories listed since the last truncate_duckdb_logs(): the S3 ListObjectsV2 requests in the HTTP log, with
+# the listed prefix decoded and made relative to the test's own prefix
+statement ok
+CREATE MACRO listed_dirs() AS TABLE
+    SELECT regexp_replace(split_part(url_decode(regexp_extract(request.url, 'prefix=([^&]*)', 1)), '/duckdb_unittest_tempdir/', 2), '^[^/]+/[^/]+/', '') AS dir
+    FROM duckdb_logs_parsed('HTTP')
+    WHERE request.url LIKE '%list-type=2%';
+
+statement ok
+CALL enable_logging('HTTP', storage := 'memory');
+
+#---------------------------------------------------------------------------
+# a filter on the first partition key lists the two matching partitions
+#---------------------------------------------------------------------------
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT count(*) FROM my_datalake.default.pp_orders WHERE dt = '2016-05-15';
+----
+2
+
+query I
+SELECT dir FROM listed_dirs() ORDER BY dir;
+----
+default/pp_orders/dt=2016-05-15/country=IN/
+default/pp_orders/dt=2016-05-15/country=US/
+
+#---------------------------------------------------------------------------
+# a filter on both partition keys lists one partition
+#---------------------------------------------------------------------------
+statement ok
+CALL truncate_duckdb_logs();
+
+query II
+SELECT id, amount FROM my_datalake.default.pp_orders WHERE dt = '2016-05-15' AND country = 'IN';
+----
+3	20.0
+
+query I
+SELECT dir FROM listed_dirs();
+----
+default/pp_orders/dt=2016-05-15/country=IN/
+
+#---------------------------------------------------------------------------
+# a range: the partitions at and after 2016-05-16, including the one at the custom location
+#---------------------------------------------------------------------------
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT sum(amount) FROM my_datalake.default.pp_orders WHERE dt >= '2016-05-16';
+----
+101.0
+
+query I
+SELECT dir FROM listed_dirs() ORDER BY dir;
+----
+custom_in/
+default/pp_orders/dt=2016-05-16/country=IN/
+default/pp_orders/dt=2016-05-16/country=US/
+
+#---------------------------------------------------------------------------
+# a filter on the second partition key only
+#---------------------------------------------------------------------------
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT count(*) FROM my_datalake.default.pp_orders WHERE country = 'IN';
+----
+4
+
+query I
+SELECT count(*) FROM listed_dirs();
+----
+4
+
+#---------------------------------------------------------------------------
+# a filter that matches no partition lists nothing
+#---------------------------------------------------------------------------
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT count(*) FROM my_datalake.default.pp_orders WHERE dt = '1999-01-01';
+----
+0
+
+query I
+SELECT count(*) FROM listed_dirs();
+----
+0
+
+#---------------------------------------------------------------------------
+# a filter on a data column can not prune: every partition is listed, once
+#---------------------------------------------------------------------------
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT count(*) FROM my_datalake.default.pp_orders WHERE amount > 15;
+----
+5
+
+query II
+SELECT count(*), count(DISTINCT dir) FROM listed_dirs();
+----
+7	7
+
+# and so does a full scan
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT count(*) FROM my_datalake.default.pp_orders;
+----
+7
+
+query I
+SELECT count(*) FROM listed_dirs();
+----
+7
+
+#---------------------------------------------------------------------------
+# with the threshold lowered, the partitions below the table location are read with one recursive listing of the
+# location, and the files are matched to their partitions by prefix
+#---------------------------------------------------------------------------
+statement ok
+SET hive_partition_listing_threshold = 1;
+
+statement ok
+CALL truncate_duckdb_logs();
+
+query III
+SELECT id, dt, country FROM my_datalake.default.pp_orders WHERE dt = '2016-05-15' ORDER BY id;
+----
+3	2016-05-15	IN
+4	2016-05-15	US
+
+query I
+SELECT dir FROM listed_dirs();
+----
+default/pp_orders/
+
+# the partition at the custom location is still listed on its own
+statement ok
+CALL truncate_duckdb_logs();
+
+query II
+SELECT count(*), sum(id) FROM my_datalake.default.pp_orders;
+----
+7	28
+
+query I
+SELECT dir FROM listed_dirs() ORDER BY dir;
+----
+custom_in/
+default/pp_orders/
+
+# only the partitions read are matched: the listing sees every directory, the rows come from two
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT count(*) FROM my_datalake.default.pp_orders WHERE country = 'US';
+----
+3
+
+query I
+SELECT dir FROM listed_dirs();
+----
+default/pp_orders/
+
+statement ok
+RESET hive_partition_listing_threshold;
+
+#---------------------------------------------------------------------------
+# planning does not list anything: EXPLAIN makes no S3 list call
+#---------------------------------------------------------------------------
+statement ok
+CALL truncate_duckdb_logs();
+
+statement ok
+EXPLAIN SELECT id FROM my_datalake.default.pp_orders WHERE dt = '2016-05-15';
+
+query I
+SELECT count(*) FROM listed_dirs();
+----
+0
+
+#---------------------------------------------------------------------------
+# hive_scan() prunes the same way, without the catalog
+#---------------------------------------------------------------------------
+statement ok
+DETACH my_datalake;
+
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT id FROM hive_scan('{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/pp_orders',
+    schema := {id: 'INTEGER', amount: 'DOUBLE', dt: 'VARCHAR', country: 'VARCHAR'},
+    partitions := [
+        {dt: '2016-05-14', country: 'IN', location: NULL},
+        {dt: '2016-05-15', country: 'IN', location: NULL},
+        {dt: '2016-06-01', country: 'IN', location: '{DEFAULT_S3_LOCATION}/{TEST_DIR}/custom_in'}
+    ])
+WHERE dt = '2016-06-01';
+----
+7
+
+query I
+SELECT dir FROM listed_dirs();
+----
+custom_in/
+
+statement ok
+attach '{GLUE_CATALOG_ID}' as my_datalake (
+    TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
+    DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
+);
+
+statement ok
+DROP TABLE my_datalake.default.pp_orders;

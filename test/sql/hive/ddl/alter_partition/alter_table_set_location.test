@@ -1,36 +1,27 @@
 # name: test/sql/hive/ddl/alter_partition/alter_table_set_location.test
-# description: ALTER TABLE [PARTITION (...)] SET LOCATION for Hive tables in Glue, following the examples in the
+# description: ALTER TABLE [PARTITION (...)] SET LOCATION for Hive tables in Glue: changing the location
 # group: [alter_partition]
 
-#              Athena ALTER TABLE SET LOCATION documentation. DuckDB has no SET LOCATION syntax, the statements are
+#              of a single partition and of the table. DuckDB has no SET LOCATION syntax, the statements are
 #              glue_set_partition_location(table, partition_spec, location) and glue_set_table_location(table, location)
 
 require httpfs
 
-require aws
-
 require glue
 
-require-env DEFAULT_S3_LOCATION
+require-env GLUE_CATALOG_ID
 
 statement ok
-CREATE SECRET (
-  TYPE S3,
-  PROVIDER credential_chain,
-  REGION 'eu-central-1',
-  PROFILE 'personal'
-);
-
-statement ok
-attach '984506134640' as my_datalake (
+attach '{GLUE_CATALOG_ID}' as my_datalake (
     TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
     DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 
 statement ok
 DROP TABLE IF EXISTS my_datalake.default.customers_location;
 
-# the docs' customers table, partitioned by zip and state
+# a customers table, partitioned by zip and state
 statement ok
 CREATE TABLE my_datalake.default.customers_location (id INTEGER, name VARCHAR, zip VARCHAR, state VARCHAR) PARTITIONED BY (zip, state);
 
@@ -112,8 +103,9 @@ SELECT id FROM my_datalake.default.customers_location ORDER BY id;
 
 # the second attach sees the new locations
 statement ok
-attach '984506134640' as verify_datalake (
+attach '{GLUE_CATALOG_ID}' as verify_datalake (
     TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
     DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 

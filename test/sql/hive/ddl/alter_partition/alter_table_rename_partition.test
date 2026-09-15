@@ -1,29 +1,20 @@
 # name: test/sql/hive/ddl/alter_partition/alter_table_rename_partition.test
-# description: ALTER TABLE PARTITION (...) RENAME TO PARTITION (...) for Hive tables in Glue, following the examples
+# description: ALTER TABLE PARTITION (...) RENAME TO PARTITION (...) for Hive tables in Glue: changing the
 # group: [alter_partition]
 
-#              in the Athena ALTER TABLE RENAME PARTITION documentation. DuckDB has no RENAME PARTITION syntax, the
+#              partition values of a partition. DuckDB has no RENAME PARTITION syntax, the
 #              statement is glue_rename_partition(table, partition_spec, new_partition_spec)
 
 require httpfs
 
-require aws
-
 require glue
 
-require-env DEFAULT_S3_LOCATION
+require-env GLUE_CATALOG_ID
 
 statement ok
-CREATE SECRET (
-  TYPE S3,
-  PROVIDER credential_chain,
-  REGION 'eu-central-1',
-  PROFILE 'personal'
-);
-
-statement ok
-attach '984506134640' as my_datalake (
+attach '{GLUE_CATALOG_ID}' as my_datalake (
     TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
     DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 
@@ -95,8 +86,9 @@ CALL glue_rename_partition('my_datalake.default.orders_rename', {dt: '2014-05-15
 
 # the second attach sees the renamed partition
 statement ok
-attach '984506134640' as verify_datalake (
+attach '{GLUE_CATALOG_ID}' as verify_datalake (
     TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
     DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 

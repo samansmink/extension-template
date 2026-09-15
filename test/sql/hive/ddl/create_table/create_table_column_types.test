@@ -1,35 +1,26 @@
 # name: test/sql/hive/ddl/create_table/create_table_column_types.test
-# description: every data_type the Athena CREATE TABLE documentation lists, as DuckDB types, and the Hive type each
+# description: every Hive data_type, as DuckDB types, and the Hive type each
 # group: [create_table]
 
 #              one is registered with in Glue
 
 require httpfs
 
-require aws
-
 require glue
 
-require-env DEFAULT_S3_LOCATION
+require-env GLUE_CATALOG_ID
 
 statement ok
-CREATE SECRET (
-  TYPE S3,
-  PROVIDER credential_chain,
-  REGION 'eu-central-1',
-  PROFILE 'personal'
-);
-
-statement ok
-attach '984506134640' as my_datalake (
+attach '{GLUE_CATALOG_ID}' as my_datalake (
     TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
     DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 
 statement ok
 DROP TABLE IF EXISTS my_datalake.default.ddl_types;
 
-# Athena:  boolean, tinyint, smallint, int, bigint, double, float, decimal(p,s), decimal(p), char(n), varchar(n),
+# Hive:    boolean, tinyint, smallint, int, bigint, double, float, decimal(p,s), decimal(p), char(n), varchar(n),
 #          string, binary, date, timestamp, array<t>, map<k,v>, struct<...>
 statement ok
 CREATE TABLE my_datalake.default.ddl_types (
@@ -78,8 +69,9 @@ struct_col	struct<city:string,zip:int>
 
 # and back as DuckDB types through a fresh attach
 statement ok
-attach '984506134640' as verify_datalake (
+attach '{GLUE_CATALOG_ID}' as verify_datalake (
     TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
     DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 
@@ -105,7 +97,7 @@ array_col	INTEGER[]
 map_col	MAP(VARCHAR, INTEGER)
 struct_col	STRUCT(city VARCHAR, zip INTEGER)
 
-# a row of every type round-trips through parquet (the docs' literal examples where they give one)
+# a row of every type round-trips through parquet
 statement ok
 INSERT INTO my_datalake.default.ddl_types VALUES (
   true, 127, 32767, 2147483647, 9223372036854775807, 1.5, 2.5,

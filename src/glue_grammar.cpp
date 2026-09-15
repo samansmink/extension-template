@@ -154,7 +154,7 @@ unique_ptr<TransformProcess> StartGlueAlterTableTransform(PEGTransformer &transf
 class GlueHiveDDLGrammar final : public GrammarExtension {
 public:
 	GlueHiveDDLGrammar()
-	    : GrammarExtension("glue_hive_ddl", "Athena style partition DDL for Hive tables in Glue: ALTER TABLE ... "
+	    : GrammarExtension("glue_hive_ddl", "Hive partition DDL for Hive tables in Glue: ALTER TABLE ... "
 	                                        "ADD / DROP PARTITION, RENAME PARTITION, SET LOCATION") {
 	}
 

@@ -1,5 +1,5 @@
 # name: test/sql/hive/ddl/create_table/create_table_planet_data.test
-# description: the planet_data example of the Athena CREATE TABLE documentation. Athena creates it as a TSV table
+# description: a planet_data table, normally created as a TSV table
 # group: [create_table]
 
 #              (ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t' STORED AS TEXTFILE); this extension only creates parquet
@@ -7,23 +7,14 @@
 
 require httpfs
 
-require aws
-
 require glue
 
-require-env DEFAULT_S3_LOCATION
+require-env GLUE_CATALOG_ID
 
 statement ok
-CREATE SECRET (
-  TYPE S3,
-  PROVIDER credential_chain,
-  REGION 'eu-central-1',
-  PROFILE 'personal'
-);
-
-statement ok
-attach '984506134640' as my_datalake (
+attach '{GLUE_CATALOG_ID}' as my_datalake (
     TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
     DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 
@@ -33,7 +24,7 @@ DROP TABLE IF EXISTS my_datalake.default.planet_data;
 #---------------------------------------------------------------------------
 # CREATE EXTERNAL TABLE planet_data (...) ... LOCATION 's3://amzn-s3-demo-bucket/tsv/'
 #---------------------------------------------------------------------------
-# Athena's string is VARCHAR, int is INTEGER, float is FLOAT
+# Hive's string is VARCHAR, int is INTEGER, float is FLOAT
 statement ok
 CREATE TABLE my_datalake.default.planet_data (
   planet_name VARCHAR,
