@@ -151,12 +151,18 @@ void HiveMultiFileList::ListPartition(FileSystem &fs, idx_t partition_index) con
 	ListDataFiles(fs, partition.location, partition_files);
 	lock_guard<mutex> guard(scan_info->file_partitions_lock);
 	for (auto &file : partition_files) {
-		if (!scan_info->file_partitions.emplace(file.path, partition_index).second) {
-			// two partitions share a location, the file belongs to the first
-			continue;
-		}
-		expanded_files.push_back(std::move(file));
+		AddFile(std::move(file), partition_index);
 	}
+}
+
+void HiveMultiFileList::AddFile(OpenFileInfo file, idx_t partition_index) const {
+	// Deduplicated per list: the scan info is shared with the copies of this list (the late materialization
+	// optimizer copies the bind data) and with the list before partition pruning, which all list the same files
+	if (!listed_files.insert(file.path).second) {
+		return;
+	}
+	scan_info->file_partitions[file.path] = partition_index;
+	expanded_files.push_back(std::move(file));
 }
 
 void HiveMultiFileList::ListRoot(FileSystem &fs, const vector<idx_t> &partitions) const {
@@ -218,10 +224,7 @@ void HiveMultiFileList::ListRoot(FileSystem &fs, const vector<idx_t> &partitions
 		if (!partition_index.IsValid()) {
 			continue;
 		}
-		if (!scan_info->file_partitions.emplace(file.path, partition_index.GetIndex()).second) {
-			continue;
-		}
-		expanded_files.push_back(std::move(file));
+		AddFile(std::move(file), partition_index.GetIndex());
 	}
 }
 

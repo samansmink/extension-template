@@ -5,6 +5,7 @@
 #include "duckdb/common/mutex.hpp"
 #include "duckdb/common/open_file_info.hpp"
 #include "duckdb/common/unordered_map.hpp"
+#include "duckdb/common/unordered_set.hpp"
 #include "duckdb/function/table_function.hpp"
 
 #include "glue_api.hpp"
@@ -79,6 +80,9 @@ private:
 	void PlanListings() const;
 	void ListRoot(FileSystem &fs, const vector<idx_t> &partitions) const;
 	void ListPartition(FileSystem &fs, idx_t partition_index) const;
+	//! Add a listed file of the partition unless this list already has it (two partitions sharing a location: the
+	//! file belongs to the first). Called with HiveScanInfo::file_partitions_lock held.
+	void AddFile(OpenFileInfo file, idx_t partition_index) const;
 
 private:
 	//! The context the list was created in; LazyMultiFileList keeps it as an optional_ptr that is const in const
@@ -90,6 +94,8 @@ private:
 	mutable vector<ListingJob> jobs;
 	//! The next entry of 'jobs' to run
 	mutable idx_t next_job = 0;
+	//! The paths already in 'expanded_files'
+	mutable unordered_set<string> listed_files;
 };
 
 //! Bind the reader for the file format (read_parquet, read_csv, read_json or read_avro) over the partitions of

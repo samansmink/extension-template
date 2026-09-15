@@ -181,6 +181,16 @@ minutes per client. A test config can not export process environment variables, 
 Every test creates the tables it needs and writes under its own `{TEST_DIR}` prefix, so runs do not interfere with
 each other; `make glue-fixture-down` throws the containers and their data away.
 
+The benchmarks under `benchmark/` read from the same local servers. They build their tables in the `load` step and
+use `debug_fs_delay_mean_ms` to add latency to every file open and read, standing in for the S3 round trip the local
+MinIO does not have (`make glue-fixture` first; the benchmark runner needs a build with `BUILD_BENCHMARK=1`):
+
+```sh
+AWS_EC2_METADATA_DISABLED=true ./build/relassert/benchmark/benchmark_runner benchmark/heavily_partitioned_table.benchmark
+```
+
+`.github/workflows/Regression.yml` runs them for a PR and for its merge base and compares the timings.
+
 ## Building
 
 ```sh
