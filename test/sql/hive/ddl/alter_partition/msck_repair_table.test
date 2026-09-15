@@ -1,5 +1,5 @@
 # name: test/sql/hive/ddl/alter_partition/msck_repair_table.test
-# description: MSCK REPAIR TABLE for Hive tables in Glue, following the Athena MSCK REPAIR TABLE documentation. DuckDB
+# description: MSCK REPAIR TABLE for Hive tables in Glue: registering partitions found in S3. DuckDB
 # group: [alter_partition]
 
 #              has no MSCK syntax, the statement is glue_repair_table(table), which returns the partitions it added

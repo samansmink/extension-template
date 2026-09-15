@@ -1,5 +1,5 @@
 # name: test/sql/hive/dml/select.test
-# description: SELECT over Hive tables in Glue, following the examples in the Athena SELECT documentation
+# description: SELECT over Hive tables in Glue: filters, CTEs, joins, aggregation, set operations, ordering and sampling
 # group: [dml]
 
 require httpfs
@@ -30,7 +30,7 @@ DROP TABLE IF EXISTS my_datalake.default.dml_impressions;
 statement ok
 DROP TABLE IF EXISTS my_datalake.default.dml_pageviews;
 
-# the "webdata"."impressions" table of the docs: processid is stored as a string
+# an impressions table: processid is stored as a string
 statement ok
 CREATE TABLE my_datalake.default.dml_impressions (processid VARCHAR, referrer VARCHAR, clicks INTEGER);
 
@@ -51,7 +51,7 @@ statement ok
 INSERT INTO my_datalake.default.dml_pageviews VALUES ('home', 10, 2018), ('about', 4, 2019), ('home', 12, 2019);
 
 #---------------------------------------------------------------------------
-# WHERE: BETWEEN, LIKE, IN (the three examples of the docs)
+# WHERE: BETWEEN, LIKE, IN
 #---------------------------------------------------------------------------
 query I
 SELECT DISTINCT processid FROM my_datalake.default.dml_impressions
@@ -88,7 +88,7 @@ SELECT count(*) FROM org;
 ----
 3
 
-# recursive WITH (Athena engine version 3)
+# recursive WITH
 query II
 WITH RECURSIVE ids(n) AS (
     SELECT 1500
@@ -200,7 +200,7 @@ SELECT processid, clicks FROM my_datalake.default.dml_impressions ORDER BY click
 1500	NULL
 1800	7
 
-# the default null ordering is NULLS LAST, as in Athena
+# the default null ordering is NULLS LAST
 query II
 SELECT processid, clicks FROM my_datalake.default.dml_impressions ORDER BY clicks DESC LIMIT 1;
 ----
@@ -229,8 +229,7 @@ SELECT count(*) FROM my_datalake.default.dml_impressions TABLESAMPLE BERNOULLI (
 ----
 6
 
-# Athena writes the percentage without a percent sign; DuckDB reads a bare number as a row count, which
-# BERNOULLI does not accept
+# a percentage without a percent sign is read as a row count, which BERNOULLI does not accept
 statement error
 SELECT count(*) FROM my_datalake.default.dml_impressions TABLESAMPLE BERNOULLI (50);
 ----

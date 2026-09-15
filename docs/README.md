@@ -23,7 +23,7 @@ Attach options:
 ## Reading
 
 Hive tables stored as parquet (ParquetHiveSerDe) are scanned with `read_parquet` through a custom
-`MultiFileReader` (`HiveMultiFileReader`) that follows Athena's read semantics:
+`MultiFileReader` (`HiveMultiFileReader`) with these read semantics:
 
 - The data files are those directly below the location of every partition Glue lists (`GetPartitions`), or below
   the table location for an unpartitioned table. Partition locations need not follow the `<key>=<value>` layout.
@@ -91,11 +91,11 @@ SELECT * FROM hive_scan('s3://bucket/warehouse/orders',
 
 ## Partitions
 
-DuckDB has no `ALTER TABLE ... PARTITION` syntax, so the Athena partition statements are table functions. The
+DuckDB has no `ALTER TABLE ... PARTITION` syntax, so the Hive partition statements are table functions. The
 partition is given as a struct naming every partition key; values are stored as strings in Glue, in partition key
 order.
 
-| function | Athena statement |
+| function | Hive statement |
 |----------|------------------|
 | `glue_partitions('cat.db.t')` | `SHOW PARTITIONS`: one row per registered partition, a typed column per partition key plus `location` |
 | `CALL glue_add_partition('cat.db.t', {dt: '2016-05-14', country: 'IN'}, location := 's3://...', if_not_exists := false)` | `ALTER TABLE ADD [IF NOT EXISTS] PARTITION (...) [LOCATION ...]`; without `location` the partition lives at `<table location>/dt=2016-05-14/country=IN` |
@@ -104,7 +104,7 @@ order.
 | `CALL glue_set_partition_location('cat.db.t', {dt: '2016-05-14', country: 'IN'}, 's3://...')` | `ALTER TABLE PARTITION (...) SET LOCATION '...'` |
 | `CALL glue_set_table_location('cat.db.t', 's3://...')` | `ALTER TABLE SET LOCATION '...'`; existing partitions keep their locations, new ones land under the new location |
 
-The Athena SQL forms are available as well, through the `glue_hive_ddl` grammar extension the extension registers.
+The Hive SQL forms are available as well, through the `glue_hive_ddl` grammar extension the extension registers.
 Grammar extensions are switched on per connection:
 
 ```sql

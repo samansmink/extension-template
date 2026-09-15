@@ -549,7 +549,7 @@ void GlueAPI::CreateHiveTable(ClientContext &context, GlueCatalog &catalog, cons
 		parameters.emplace("classification", "parquet");
 		break;
 	case HiveFileFormat::CSV:
-		// Athena's "ROW FORMAT DELIMITED FIELDS TERMINATED BY ','" without a header line
+		// Hive's "ROW FORMAT DELIMITED FIELDS TERMINATED BY ','" without a header line
 		serde_info.SetSerializationLibrary("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe");
 		serde_info.AddParameters("field.delim", ",");
 		serde_info.AddParameters("serialization.format", ",");

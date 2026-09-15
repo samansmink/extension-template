@@ -1,5 +1,5 @@
 # name: test/sql/hive/dml/values.test
-# description: VALUES, following the examples in the Athena VALUES documentation
+# description: VALUES as an inline table: on its own, as the source of a Hive table in Glue, and as an INSERT source
 # group: [dml]
 
 require httpfs
@@ -35,7 +35,7 @@ VALUES (1), (2), (3);
 2
 3
 
-# Athena also accepts the rows without parentheses, DuckDB does not
+# rows without parentheses are not accepted
 statement error
 VALUES 1, 2, 3;
 ----

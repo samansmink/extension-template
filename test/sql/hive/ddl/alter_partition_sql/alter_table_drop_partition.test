@@ -79,7 +79,7 @@ SELECT count(*) FROM read_parquet('{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/sql_
 1
 
 #---------------------------------------------------------------------------
-# ALTER TABLE orders DROP PARTITION (...), PARTITION (...);   (Athena: comma separated)
+# ALTER TABLE orders DROP PARTITION (...), PARTITION (...);   (comma separated)
 #---------------------------------------------------------------------------
 statement ok
 ALTER TABLE my_datalake.default.sql_orders_drop DROP

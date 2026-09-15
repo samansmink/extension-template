@@ -5,7 +5,7 @@
 namespace duckdb {
 class DatabaseInstance;
 
-//! The 'glue_hive_ddl' grammar extension: Athena's partition DDL as SQL
+//! The 'glue_hive_ddl' grammar extension: Hive partition DDL as SQL
 //!
 //!   ALTER TABLE t ADD [IF NOT EXISTS] PARTITION (k = v, ...) [LOCATION '...'] [PARTITION (...) [LOCATION '...']]...
 //!   ALTER TABLE t DROP [IF EXISTS] PARTITION (k = v, ...) [, PARTITION (...)]...

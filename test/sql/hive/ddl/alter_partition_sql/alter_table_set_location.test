@@ -32,7 +32,7 @@ attach '984506134640' as my_datalake (
 statement ok
 DROP TABLE IF EXISTS my_datalake.default.sql_customers;
 
-# the docs' customers table, partitioned by zip and state
+# a customers table, partitioned by zip and state
 statement ok
 CREATE TABLE my_datalake.default.sql_customers (id INTEGER, name VARCHAR, zip VARCHAR, state VARCHAR) PARTITIONED BY (zip, state);
 

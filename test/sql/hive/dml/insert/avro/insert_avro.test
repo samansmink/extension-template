@@ -34,7 +34,7 @@ statement ok
 DROP TABLE IF EXISTS my_datalake.default.ins_avro_plain;
 
 #---------------------------------------------------------------------------
-# a partitioned avro table, like the docs' flight delays table
+# a partitioned avro table
 #---------------------------------------------------------------------------
 statement ok
 CREATE TABLE my_datalake.default.ins_avro (flight VARCHAR, delay INTEGER, year INTEGER) PARTITIONED BY (year) WITH (format = 'avro');
