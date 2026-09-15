@@ -66,7 +66,7 @@ SELECT id, amount FROM my_datalake.default.sql_orders_add ORDER BY id;
 1	10.0
 
 #---------------------------------------------------------------------------
-# several partitions in one statement, Athena style: ADD PARTITION (...) PARTITION (...)
+# several partitions in one statement: ADD PARTITION (...) PARTITION (...)
 #---------------------------------------------------------------------------
 statement ok
 ALTER TABLE my_datalake.default.sql_orders_add ADD

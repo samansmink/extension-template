@@ -1,8 +1,8 @@
 # name: test/sql/hive/ddl/alter_partition/show_partitions.test
-# description: SHOW PARTITIONS and "table$partitions" for Hive tables in Glue, following the examples in the Athena
+# description: SHOW PARTITIONS and "table$partitions" for Hive tables in Glue: listing the partitions
 # group: [alter_partition]
 
-#              SHOW PARTITIONS documentation. DuckDB has neither syntax, the table function is glue_partitions(table)
+#              registered in the Glue metadata. DuckDB has neither syntax, the table function is glue_partitions(table)
 #              with one typed column per partition key plus the partition location
 
 require httpfs
@@ -24,7 +24,7 @@ DROP TABLE IF EXISTS my_datalake.default.flight_delays;
 statement ok
 DROP TABLE IF EXISTS my_datalake.default.impressions_partitions;
 
-# the docs' flight_delays table, partitioned by year
+# a flight_delays table, partitioned by year
 statement ok
 CREATE TABLE my_datalake.default.flight_delays (flight VARCHAR, delay INTEGER, year INTEGER) PARTITIONED BY (year);
 

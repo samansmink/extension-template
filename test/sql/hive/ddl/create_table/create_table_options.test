@@ -1,5 +1,5 @@
 # name: test/sql/hive/ddl/create_table/create_table_options.test
-# description: the clauses of the Athena CREATE TABLE synopsis other than the column list: IF NOT EXISTS,
+# description: the clauses of a Hive CREATE TABLE other than the column list: IF NOT EXISTS,
 # group: [create_table]
 
 #              [db_name.]table_name, PARTITIONED BY, LOCATION, TBLPROPERTIES, and the ones without a DuckDB
@@ -11,7 +11,7 @@ require glue
 
 require-env GLUE_CATALOG_ID
 
-# DEFAULT_SCHEMA plays the role of Athena's current database
+# DEFAULT_SCHEMA sets the current database
 statement ok
 attach '{GLUE_CATALOG_ID}' as my_datalake (
     TYPE glue,
@@ -98,7 +98,7 @@ table123
 #---------------------------------------------------------------------------
 # PARTITIONED BY (col_name data_type, ...)
 #---------------------------------------------------------------------------
-# Athena declares partition columns only in PARTITIONED BY; here they are table columns named in PARTITIONED BY and
+# partition columns are table columns named in PARTITIONED BY and
 # stored as Glue PartitionKeys rather than in the data files
 statement ok
 CREATE TABLE my_datalake.default.ddl_opts_part (id INTEGER, dt VARCHAR, country VARCHAR) PARTITIONED BY (dt, country);
@@ -120,7 +120,7 @@ CREATE TABLE my_datalake.default.ddl_opts_part_bad (id INTEGER) PARTITIONED BY (
 ----
 not a column
 
-# Athena: a partition column with the same name as a table column is an error; here every data column must remain
+# partitioning by every column is an error: at least one data column must remain
 statement error
 CREATE TABLE my_datalake.default.ddl_opts_part_bad (dt VARCHAR) PARTITIONED BY (dt);
 ----
@@ -128,7 +128,7 @@ CREATE TABLE my_datalake.default.ddl_opts_part_bad (dt VARCHAR) PARTITIONED BY (
 #---------------------------------------------------------------------------
 # LOCATION 's3://amzn-s3-demo-bucket/folder/'
 #---------------------------------------------------------------------------
-# the docs ask for a trailing slash; it is accepted and stored without
+# a trailing slash is accepted and stored without
 statement ok
 CREATE TABLE my_datalake.default.ddl_opts_loc (id INTEGER) WITH (location = '{DEFAULT_S3_LOCATION}/{TEST_DIR}/folder/');
 

@@ -1,5 +1,5 @@
 # name: test/sql/hive/dml/insert_into.test
-# description: INSERT INTO Hive tables in Glue, following the examples in the Athena INSERT INTO documentation
+# description: INSERT INTO Hive tables in Glue: INSERT ... SELECT, INSERT ... VALUES and partitioned destinations
 # group: [dml]
 
 require httpfs
@@ -39,7 +39,7 @@ DROP TABLE IF EXISTS my_datalake.default.dml_cities_by_state;
 #---------------------------------------------------------------------------
 # INSERT INTO ... SELECT
 #---------------------------------------------------------------------------
-# "date" is a reserved word in Athena and is quoted, as the docs recommend
+# "date" is a reserved word and is quoted
 statement ok
 CREATE TABLE my_datalake.default.dml_vancouver_pageviews ("date" DATE, page VARCHAR, views BIGINT);
 
@@ -130,11 +130,11 @@ SELECT * FROM my_datalake.default.dml_cities ORDER BY id, city;
 1	Lansing	MI	Si quaeris peninsulam amoenam circumspice
 3	Boise	ID	Esto perpetua
 
-# columns that are not mentioned become NULL (Athena requires every column)
+# columns that are not mentioned become NULL
 statement ok
 INSERT INTO my_datalake.default.dml_cities (id, city) VALUES (4, 'Austin');
 
-# values are cast to the column types (Athena requires the types to match precisely)
+# values are cast to the column types
 statement ok
 INSERT INTO my_datalake.default.dml_cities VALUES ('5', 'Denver', 'CO', 'Nil sine numine');
 
