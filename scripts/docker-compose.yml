@@ -1,0 +1,42 @@
+# Local Glue + S3 for the tests: moto serves the Glue API, MinIO serves S3. The 'init' service creates the S3 bucket
+# and the Glue database 'default' the tests use, so `docker compose up -d` is all the setup there is.
+#   docker compose -f scripts/docker-compose.yml up -d
+#   AWS_EC2_METADATA_DISABLED=true ./build/relassert/test/unittest --test-config test/configs/local_glue.json 'test/sql/*'
+# Ports 5555 and 9100 are used so that they do not clash with macOS (5000) and other MinIO instances (9000).
+services:
+  moto:
+    image: motoserver/moto:latest
+    container_name: glue-moto
+    ports:
+      - "5555:5000"
+    environment:
+      - MOTO_PORT=5000
+  minio:
+    image: minio/minio:latest
+    container_name: glue-minio
+    ports:
+      - "9100:9000"
+      - "9101:9001"
+    environment:
+      - MINIO_ROOT_USER=minio
+      - MINIO_ROOT_PASSWORD=minio123
+    command: ["server", "/data", "--console-address", ":9001"]
+  init:
+    image: amazon/aws-cli:latest
+    container_name: glue-init
+    depends_on:
+      - moto
+      - minio
+    environment:
+      - AWS_ACCESS_KEY_ID=minio
+      - AWS_SECRET_ACCESS_KEY=minio123
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_EC2_METADATA_DISABLED=true
+    entrypoint: |
+      /bin/sh -c "
+      until aws --endpoint-url http://minio:9000 s3 ls > /dev/null 2>&1; do echo 'waiting for MinIO'; sleep 1; done;
+      aws --endpoint-url http://minio:9000 s3 mb s3://glue-test 2>/dev/null || true;
+      until aws --endpoint-url http://moto:5000 glue get-databases > /dev/null 2>&1; do echo 'waiting for moto'; sleep 1; done;
+      aws --endpoint-url http://moto:5000 glue create-database --database-input '{\"Name\": \"default\", \"LocationUri\": \"s3://glue-test/warehouse/default\"}' 2>/dev/null || true;
+      echo 'bucket glue-test and Glue database default ready';
+      "

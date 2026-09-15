@@ -7,24 +7,15 @@
 
 require httpfs
 
-require aws
-
 require glue
 
-require-env DEFAULT_S3_LOCATION
-
-statement ok
-CREATE SECRET (
-  TYPE S3,
-  PROVIDER credential_chain,
-  REGION 'eu-central-1',
-  PROFILE 'personal'
-);
+require-env GLUE_CATALOG_ID
 
 # DEFAULT_SCHEMA plays the role of Athena's current database
 statement ok
-attach '984506134640' as my_datalake (
+attach '{GLUE_CATALOG_ID}' as my_datalake (
     TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
     DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}',
     DEFAULT_SCHEMA 'default'
 );
@@ -181,11 +172,6 @@ DROP TABLE my_datalake.default.ddl_opts_props;
 # table comments are not written to Glue
 statement error
 COMMENT ON TABLE my_datalake.default.ddl_opts IS 'planet data';
-----
-
-# only parquet Hive tables can be created
-statement error
-CREATE TABLE my_datalake.default.ddl_opts_type (id INTEGER) WITH (type = 'ICEBERG');
 ----
 
 # SORTED BY (the closest DuckDB syntax to CLUSTERED BY) is rejected

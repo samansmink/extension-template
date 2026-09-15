@@ -7,23 +7,14 @@
 
 require httpfs
 
-require aws
-
 require glue
 
-require-env DEFAULT_S3_LOCATION
+require-env GLUE_CATALOG_ID
 
 statement ok
-CREATE SECRET (
-  TYPE S3,
-  PROVIDER credential_chain,
-  REGION 'eu-central-1',
-  PROFILE 'personal'
-);
-
-statement ok
-attach '984506134640' as my_datalake (
+attach '{GLUE_CATALOG_ID}' as my_datalake (
     TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
     DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 
@@ -154,8 +145,9 @@ CALL glue_add_partition('memory.main.nope', {dt: '2016-07-01', country: 'IN'});
 
 # the second attach sees the partitions registered in Glue
 statement ok
-attach '984506134640' as verify_datalake (
+attach '{GLUE_CATALOG_ID}' as verify_datalake (
     TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
     DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
 );
 

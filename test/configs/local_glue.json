@@ -1,0 +1,18 @@
+{
+	"description": "Run with AWS_EC2_METADATA_DISABLED=true in the environment (see docs/README.md). Local Glue (moto) and S3 (MinIO) from scripts/docker-compose.yml (which creates the bucket and the Glue database 'default')",
+	"on_init": "CREATE SECRET (TYPE S3, KEY_ID 'minio', SECRET 'minio123', REGION 'us-east-1', ENDPOINT 'localhost:9100', USE_SSL false, URL_STYLE 'path');",
+	"statically_loaded_extensions": [
+		"core_functions",
+		"parquet",
+		"json",
+		"avro",
+		"httpfs",
+		"glue"
+	],
+	"test_env": [
+		{"env_name": "GLUE_TEST_CONFIG", "env_value": "local"},
+		{"env_name": "GLUE_CATALOG_ID", "env_value": "123456789012"},
+		{"env_name": "GLUE_ENDPOINT", "env_value": "http://localhost:5555"},
+		{"env_name": "DEFAULT_S3_LOCATION", "env_value": "s3://glue-test/warehouse"}
+	]
+}
