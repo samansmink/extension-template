@@ -1,0 +1,116 @@
+# name: test/sql/hive/hive_scan/scan_partitioned/test_order_by_limit.test
+# description: ORDER BY ... LIMIT on a partitioned Hive table: late materialization copies the scan, and every copy of
+# group: [scan_partitioned]
+
+#              the file list has to list (and read) the files of the partitions, pruned or not
+
+require httpfs
+
+require glue
+
+require-env GLUE_CATALOG_ID
+
+statement ok
+attach '{GLUE_CATALOG_ID}' as my_datalake (
+    TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
+    DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
+);
+
+statement ok
+DROP TABLE IF EXISTS my_datalake.default.obl_events;
+
+statement ok
+CREATE TABLE my_datalake.default.obl_events (id BIGINT, val VARCHAR, dt VARCHAR, region VARCHAR) PARTITIONED BY (dt, region);
+
+# six partitions of ten rows: range % 6 decides both keys
+statement ok
+INSERT INTO my_datalake.default.obl_events
+SELECT range, 'v' || range, '2024-01-0' || (1 + range % 3), CASE range % 2 WHEN 0 THEN 'eu' ELSE 'us' END
+FROM range(60);
+
+query I
+SELECT count(*) FROM glue_partitions('my_datalake.default.obl_events');
+----
+6
+
+# the plan this test is about: the scan is copied and joined back to the top-n on the row's file and row number
+statement ok
+PRAGMA explain_output = 'optimized_only';
+
+query II
+EXPLAIN SELECT id, val FROM my_datalake.default.obl_events WHERE dt = '2024-01-02' AND region = 'us' ORDER BY id LIMIT 2;
+----
+logical_opt	<REGEX>:.*SEMI.*file_row_number.*Top N.*
+
+statement ok
+RESET explain_output;
+
+# the queries below run twice: listing every partition on its own, and with one recursive listing of the location
+foreach threshold 10 1
+
+statement ok
+SET hive_partition_listing_threshold = {threshold};
+
+# no filter
+query IIII
+SELECT id, val, dt, region FROM my_datalake.default.obl_events ORDER BY id LIMIT 3;
+----
+0	v0	2024-01-01	eu
+1	v1	2024-01-02	us
+2	v2	2024-01-03	eu
+
+# a filter on every partition key: one partition is read
+query II
+SELECT id, val FROM my_datalake.default.obl_events WHERE dt = '2024-01-02' AND region = 'us' ORDER BY id LIMIT 2;
+----
+1	v1
+7	v7
+
+# a filter on one partition key, descending
+query III
+SELECT id, dt, region FROM my_datalake.default.obl_events WHERE region = 'eu' ORDER BY id DESC LIMIT 3;
+----
+58	2024-01-02	eu
+56	2024-01-03	eu
+54	2024-01-01	eu
+
+# a partition filter together with a filter on a data column
+query II
+SELECT id, region FROM my_datalake.default.obl_events WHERE dt = '2024-01-01' AND id > 30 ORDER BY id LIMIT 2;
+----
+33	us
+36	eu
+
+# ordered by a partition column
+query III
+SELECT id, dt, region FROM my_datalake.default.obl_events ORDER BY dt DESC, id LIMIT 2;
+----
+2	2024-01-03	eu
+5	2024-01-03	us
+
+# a filter that matches no partition
+query I
+SELECT id FROM my_datalake.default.obl_events WHERE dt = '1999-01-01' ORDER BY id LIMIT 2;
+----
+
+# the same result without late materialization
+statement ok
+SET late_materialization_max_rows = 0;
+
+query II
+SELECT id, val FROM my_datalake.default.obl_events WHERE dt = '2024-01-02' AND region = 'us' ORDER BY id LIMIT 2;
+----
+1	v1
+7	v7
+
+statement ok
+RESET late_materialization_max_rows;
+
+endloop
+
+statement ok
+RESET hive_partition_listing_threshold;
+
+statement ok
+DROP TABLE my_datalake.default.obl_events;
