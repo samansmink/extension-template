@@ -128,6 +128,17 @@ becomes `CALL glue_alter_table(table, [actions])`: every action is checked again
 statement that fails changes nothing, and consecutive adds go out as one `BatchCreatePartition` call. The table name
 may be partially qualified; it is resolved like in a query.
 
+Listing the partitions of a table - `glue_partitions`, and the binding of every scan of a partitioned table - pages
+through Glue's `GetPartitions`. The pages are asked for in parallel with Glue's Segment API:
+`glue_get_partitions_segments` requests run at the same time, each over a segment of the partitions that does not
+overlap with the others. `0`, the default, uses 8 requests against AWS and 1 against a Glue compatible server given
+with `ENDPOINT` (moto ignores `Segment` and answers every segment with the whole table, so the partitions a segment
+already returned are dropped); 10 is the maximum Glue accepts. The responses leave out the column schema every
+partition would otherwise repeat, which is not used: only the partition values and the location are.
+
+Against AWS, listing the 2526 partitions of a TPC-H SF1 `lineitem` took ~2.1s before and ~0.45s with the default of
+8 segments; `SET glue_get_partitions_segments = 1` restores one request at a time.
+
 ## Inspecting tables
 
 Every table entry carries its format in `duckdb_tables().tags['table_type']` (`HIVE`, `ICEBERG`, `DELTA` or

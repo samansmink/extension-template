@@ -1,7 +1,11 @@
 #include "glue_api.hpp"
 
+#include "duckdb/common/error_data.hpp"
 #include "duckdb/common/exception.hpp"
+#include "duckdb/common/numeric_utils.hpp"
 #include "duckdb/common/string_util.hpp"
+#include "duckdb/common/thread.hpp"
+#include "duckdb/common/unordered_set.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/config.hpp"
 #include "duckdb/main/database.hpp"
@@ -28,6 +32,7 @@
 #include <aws/glue/model/UpdateTableRequest.h>
 #include <aws/glue/model/BatchCreatePartitionRequest.h>
 #include <aws/glue/model/GetPartitionsRequest.h>
+#include <aws/glue/model/Segment.h>
 #include <aws/glue/model/GetPartitionRequest.h>
 #include <aws/glue/model/CreatePartitionRequest.h>
 #include <aws/glue/model/DeletePartitionRequest.h>
@@ -893,21 +898,38 @@ void GlueAPI::RenamePartition(ClientContext &context, GlueCatalog &catalog, cons
 	}
 }
 
-vector<GluePartitionInfo> GlueAPI::GetPartitions(ClientContext &context, GlueCatalog &catalog,
-                                                 const string &database_name, const string &table_name) {
-	GlueHttpClientContextScope http_scope(context);
-	auto client = GetClient(context, catalog);
-	vector<GluePartitionInfo> result;
+//! The partitions Glue returns per request. 1000 is the maximum the API allows.
+static constexpr int GLUE_PARTITIONS_PAGE_SIZE = 1000;
+//! The requests to run at the same time when the catalog is AWS and the setting leaves the choice open
+static constexpr idx_t GLUE_DEFAULT_PARTITION_SEGMENTS = 8;
+//! The maximum Glue accepts for Segment::TotalSegments
+static constexpr idx_t GLUE_MAX_PARTITION_SEGMENTS = 10;
+
+//! One chain of GetPartitions requests: pages through the partitions of segment 'segment_number' (the whole table
+//! when 'total_segments' is 1) and appends them to 'result'
+static void FetchPartitionSegment(Aws::Glue::GlueClient &client, const GlueCatalog &catalog,
+                                  const string &database_name, const string &table_name, int segment_number,
+                                  int total_segments, vector<GluePartitionInfo> &result) {
 	Aws::String next_token;
 	do {
 		Aws::Glue::Model::GetPartitionsRequest request;
 		SetCatalogId(request, catalog);
 		request.SetDatabaseName(database_name);
 		request.SetTableName(table_name);
+		// Only the values and the location of a partition are used. The column schema every partition repeats is a
+		// large part of the response, and fewer bytes per partition means more partitions per page.
+		request.SetExcludeColumnSchema(true);
+		request.SetMaxResults(GLUE_PARTITIONS_PAGE_SIZE);
+		if (total_segments > 1) {
+			Aws::Glue::Model::Segment segment;
+			segment.SetSegmentNumber(segment_number);
+			segment.SetTotalSegments(total_segments);
+			request.SetSegment(segment);
+		}
 		if (!next_token.empty()) {
 			request.SetNextToken(next_token);
 		}
-		auto outcome = client->GetPartitions(request);
+		auto outcome = client.GetPartitions(request);
 		if (!outcome.IsSuccess()) {
 			ThrowGlueError(outcome, StringUtil::Format("GetPartitions '%s.%s'", database_name, table_name));
 		}
@@ -922,6 +944,79 @@ vector<GluePartitionInfo> GlueAPI::GetPartitions(ClientContext &context, GlueCat
 		}
 		next_token = partitions.GetNextToken();
 	} while (!next_token.empty());
+}
+
+//! The number of GetPartitions requests to run at the same time: the setting when it is given, otherwise one request
+//! against a server given with ENDPOINT (moto ignores Segment and answers every segment with the whole table) and
+//! GLUE_DEFAULT_PARTITION_SEGMENTS against AWS.
+static int GetPartitionSegmentCount(ClientContext &context, const GlueCatalog &catalog) {
+	idx_t segments = 0;
+	Value setting;
+	if (context.TryGetCurrentSetting("glue_get_partitions_segments", setting) && !setting.IsNull()) {
+		segments = setting.GetValue<idx_t>();
+	}
+	if (segments == 0) {
+		segments = catalog.options.endpoint.empty() ? GLUE_DEFAULT_PARTITION_SEGMENTS : 1;
+	}
+	if (segments > GLUE_MAX_PARTITION_SEGMENTS) {
+		segments = GLUE_MAX_PARTITION_SEGMENTS;
+	}
+	return static_cast<int>(segments);
+}
+
+vector<GluePartitionInfo> GlueAPI::GetPartitions(ClientContext &context, GlueCatalog &catalog,
+                                                 const string &database_name, const string &table_name) {
+	GlueHttpClientContextScope http_scope(context);
+	auto client = GetClient(context, catalog);
+	auto total_segments = GetPartitionSegmentCount(context, catalog);
+	vector<vector<GluePartitionInfo>> segment_results(NumericCast<idx_t>(total_segments));
+
+	if (total_segments == 1) {
+		FetchPartitionSegment(*client, catalog, database_name, table_name, 0, 1, segment_results[0]);
+	} else {
+		// The segments do not overlap, so their requests can run at the same time. Every worker sets the context
+		// scope itself: it is thread local, and without it the requests would use the database level HTTP settings
+		// and stay out of this connection's HTTP log.
+		vector<ErrorData> errors(NumericCast<idx_t>(total_segments));
+		vector<thread> workers;
+		for (int segment = 1; segment < total_segments; segment++) {
+			workers.emplace_back([&, segment]() {
+				GlueHttpClientContextScope worker_scope(context);
+				try {
+					FetchPartitionSegment(*client, catalog, database_name, table_name, segment, total_segments,
+					                      segment_results[NumericCast<idx_t>(segment)]);
+				} catch (std::exception &ex) {
+					errors[NumericCast<idx_t>(segment)] = ErrorData(ex);
+				}
+			});
+		}
+		try {
+			FetchPartitionSegment(*client, catalog, database_name, table_name, 0, total_segments, segment_results[0]);
+		} catch (std::exception &ex) {
+			errors[0] = ErrorData(ex);
+		}
+		for (auto &worker : workers) {
+			worker.join();
+		}
+		for (auto &error : errors) {
+			if (error.HasError()) {
+				error.Throw();
+			}
+		}
+	}
+
+	vector<GluePartitionInfo> result;
+	unordered_set<string> seen;
+	for (auto &segment_result : segment_results) {
+		for (auto &partition : segment_result) {
+			// A Glue compatible server that ignores Segment answers every segment with the whole table: the values
+			// identify the partition, so what was seen already is dropped here
+			if (total_segments > 1 && !seen.insert(StringUtil::Join(partition.values, "\x1f")).second) {
+				continue;
+			}
+			result.push_back(std::move(partition));
+		}
+	}
 	return result;
 }
 
