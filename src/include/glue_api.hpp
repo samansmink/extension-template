@@ -62,6 +62,12 @@ struct GlueTableInfo {
 	unordered_map<string, string> parameters;
 	//! The file format to create the table with (CreateHiveTable); for a fetched table use GetFileFormat()
 	HiveFileFormat file_format = HiveFileFormat::PARQUET;
+	//! The CSV dialect to create a csv table with (CreateHiveTable); for a fetched table use GetFieldDelimiter(),
+	//! GetQuoteCharacter() and GetEscapeCharacter(). With a quote or escape character the table gets OpenCSVSerde
+	//! (which quotes), without both LazySimpleSerDe (which does not)
+	string csv_delimiter = ",";
+	string csv_quote;
+	string csv_escape;
 
 public:
 	//! Derive the open table format from the table parameters
@@ -80,6 +86,10 @@ public:
 	string GetFieldDelimiter() const;
 	//! Whether the data files of a CSV table start with a header line (skip.header.line.count)
 	bool HasHeader() const;
+	//! The quote character of a CSV table (quoteChar of OpenCSVSerde), '"' when the SerDe does not say
+	string GetQuoteCharacter() const;
+	//! The escape character of a CSV table (escapeChar of OpenCSVSerde), else the quote character
+	string GetEscapeCharacter() const;
 };
 
 //! A partition of a Hive table to register: the partition values (in partition key order) and its location
