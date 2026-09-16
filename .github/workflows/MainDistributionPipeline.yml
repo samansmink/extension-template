@@ -18,7 +18,7 @@ jobs:
     with:
       duckdb_version: b016ea967a0098c67e84458d523d0cebc1c1ac47
       ci_tools_version: main
-      exclude_archs: 'windows_amd64_mingw,wasm_eh'
+      exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;windows_amd64_rtools;windows_amd64_mingw'
       extension_name: glue
 
   code-quality-check:

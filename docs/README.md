@@ -192,6 +192,32 @@ MinIO does not have (`make glue-fixture` first; the benchmark runner needs a bui
 AWS_EC2_METADATA_DISABLED=true ./build/relassert/benchmark/benchmark_runner benchmark/heavily_partitioned_table.benchmark
 ```
 
+`benchmark/tpch/sf1/` runs the 22 TPC-H queries at SF1 against Hive tables in the Glue database `bench_tpch_sf1`
+(`lineitem` partitioned by `l_shipdate`, `orders` by `o_orderdate`) and checks the answers. The first run generates
+the data with `dbgen` and writes it with CTAS, which takes a while; later runs reuse
+`duckdb_benchmark_data/glue_tpch_sf1.duckdb`, which `make glue-fixture` removes:
+
+```sh
+AWS_EC2_METADATA_DISABLED=true ./build/relassert/benchmark/benchmark_runner 'benchmark/tpch/sf1/.*'
+```
+
+`benchmark/tpcds/sf1/` does the same for the 99 TPC-DS queries at SF1, with the Glue database `bench_tpcds_sf1`: the
+fact tables are partitioned by their date key (`ss_sold_date_sk`, `sr_returned_date_sk`, `cs_sold_date_sk`,
+`cr_returned_date_sk`, `ws_sold_date_sk`, `wr_returned_date_sk`, `inv_date_sk`), the dimension tables are not. Its
+cache is `duckdb_benchmark_data/glue_tpcds_sf1.duckdb`:
+
+```sh
+AWS_EC2_METADATA_DISABLED=true ./build/release/benchmark/benchmark_runner 'benchmark/tpcds/sf1/.*'
+```
+
+The TPC-DS load needs a build without assertions (`BUILD_BENCHMARK=1 make release`): its fact tables have rows with a
+NULL date key, and writing such a partition trips a `D_ASSERT` in DuckDB's partitioned copy (see the header of
+`benchmark/tpcds/sf1/tpcds_sf1.benchmark.in` for a repro without Glue).
+
+Both loads create their Glue tables with `CREATE TABLE IF NOT EXISTS ... AS`, so changing a load (e.g. the scale
+factor) has no effect while the tables are in Glue: rebuild the fixture with
+`make glue-fixture-down && make glue-fixture` first.
+
 `.github/workflows/Regression.yml` runs them for a PR and for its merge base and compares the timings.
 
 ## Building
