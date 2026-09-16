@@ -52,7 +52,7 @@ CREATE SECRET (
     SECRET 'minio123',
     REGION 'us-east-1',
     ENDPOINT 'localhost:9100',
-    USE_S bbSL false,
+    USE_SSL false,
     URL_STYLE 'path'
 );
 ATTACH '123456789012' AS my_datalake (
