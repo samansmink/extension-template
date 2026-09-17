@@ -3,6 +3,7 @@
 #   docker compose -f scripts/docker-compose.yml up -d
 #   AWS_EC2_METADATA_DISABLED=true ./build/relassert/test/unittest --test-config test/configs/local_glue.json 'test/sql/*'
 # Ports 5555 and 9100 are used so that they do not clash with macOS (5000) and other MinIO instances (9000).
+name: duckdb-glue
 services:
   moto:
     image: motoserver/moto:5.2.3
