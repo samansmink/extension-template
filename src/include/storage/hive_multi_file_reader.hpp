@@ -126,10 +126,6 @@ public:
 	unique_ptr<MultiFileList> ComplexFilterPushdown(ClientContext &context, MultiFileList &files,
 	                                                const MultiFileOptions &options, MultiFilePushdownInfo &info,
 	                                                vector<unique_ptr<Expression>> &filters) override;
-	//! CSV files are opened with the data columns of the table (by position) and no sniffing
-	shared_ptr<BaseFileReader> CreateReader(ClientContext &context, GlobalTableFunctionState &gstate,
-	                                        const OpenFileInfo &file, idx_t file_idx,
-	                                        const MultiFileBindData &bind_data) override;
 	void FinalizeBind(MultiFileReaderData &reader_data, const MultiFileOptions &file_options,
 	                  const MultiFileReaderBindData &options, const vector<MultiFileColumnDefinition> &global_columns,
 	                  const vector<ColumnIndex> &global_column_ids, ClientContext &context,
