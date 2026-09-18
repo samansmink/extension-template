@@ -8,7 +8,9 @@ set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
 
 project(${TARGET_NAME})
 
-set(CMAKE_CXX_STANDARD "17" CACHE STRING "C++ standard to enforce")
+set(CMAKE_CXX_STANDARD
+    "17"
+    CACHE STRING "C++ standard to enforce")
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # The AWS SDK (installed through vcpkg) provides the Glue Data Catalog client
@@ -46,12 +48,16 @@ set(EXTENSION_SOURCES
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
 
-# Link the AWS SDK, CURL and OpenSSL in both the static library and the loadable extension
-target_include_directories(${EXTENSION_NAME} PUBLIC $<BUILD_INTERFACE:${AWSSDK_INCLUDE_DIRS}>)
-target_link_libraries(${EXTENSION_NAME} ${AWSSDK_LINK_LIBRARIES} ${CURL_LIBRARIES} OpenSSL::SSL OpenSSL::Crypto)
-target_include_directories(${LOADABLE_EXTENSION_NAME} PRIVATE $<BUILD_INTERFACE:${AWSSDK_INCLUDE_DIRS}>)
-target_link_libraries(${LOADABLE_EXTENSION_NAME} ${AWSSDK_LINK_LIBRARIES} ${CURL_LIBRARIES} OpenSSL::SSL
-                      OpenSSL::Crypto)
+# Link the AWS SDK, CURL and OpenSSL in both the static library and the loadable
+# extension
+target_include_directories(${EXTENSION_NAME}
+                           PUBLIC $<BUILD_INTERFACE:${AWSSDK_INCLUDE_DIRS}>)
+target_link_libraries(${EXTENSION_NAME} ${AWSSDK_LINK_LIBRARIES}
+                      ${CURL_LIBRARIES} OpenSSL::SSL OpenSSL::Crypto)
+target_include_directories(${LOADABLE_EXTENSION_NAME}
+                           PRIVATE $<BUILD_INTERFACE:${AWSSDK_INCLUDE_DIRS}>)
+target_link_libraries(${LOADABLE_EXTENSION_NAME} ${AWSSDK_LINK_LIBRARIES}
+                      ${CURL_LIBRARIES} OpenSSL::SSL OpenSSL::Crypto)
 
 install(
   TARGETS ${EXTENSION_NAME}

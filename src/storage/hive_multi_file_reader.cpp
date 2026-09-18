@@ -18,9 +18,6 @@
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/main/database.hpp"
 #include "duckdb/main/extension_helper.hpp"
-#include "duckdb/execution/operator/csv_scanner/csv_file_scanner.hpp"
-#include "duckdb/execution/operator/csv_scanner/global_csv_state.hpp"
-#include "duckdb/function/table/read_csv.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
 
 namespace duckdb {
@@ -343,9 +340,11 @@ TableFunction BindHiveScan(ClientContext &context, shared_ptr<HiveScanInfo> scan
 		function_name = "read_parquet";
 		break;
 	case HiveFileFormat::CSV:
-		// Hive CSV files carry no schema: the columns are given, by position
+		// Hive CSV files carry no schema: the columns are given, by position, and the dialect is the one the table
+		// describes - there is nothing left for the sniffer to find, so every file is opened without sniffing
 		function_name = "read_csv";
 		param_map["columns"] = Value::STRUCT(data_columns);
+		param_map["auto_detect"] = Value::BOOLEAN(false);
 		param_map["header"] = Value::BOOLEAN(scan_info->header);
 		param_map["delim"] = Value(scan_info->delimiter);
 		param_map["quote"] = Value(scan_info->quote);
@@ -542,35 +541,6 @@ unique_ptr<MultiFileList> HiveMultiFileReader::ComplexFilterPushdown(ClientConte
 		return nullptr;
 	}
 	return make_uniq<HiveMultiFileList>(context, scan_info, std::move(kept));
-}
-
-//===--------------------------------------------------------------------===//
-// Opening files
-//===--------------------------------------------------------------------===//
-shared_ptr<BaseFileReader> HiveMultiFileReader::CreateReader(ClientContext &context, GlobalTableFunctionState &gstate,
-                                                             const OpenFileInfo &file, idx_t file_idx,
-                                                             const MultiFileBindData &bind_data) {
-	auto &info = ScanInfo();
-	if (info.file_format != HiveFileFormat::CSV) {
-		return MultiFileReader::CreateReader(context, gstate, file, file_idx, bind_data);
-	}
-	// The CSV reader would open the file with the global columns (partition columns included) and sniff a schema
-	// it was never given. A Hive CSV file holds exactly the data columns, in order, with the dialect the table
-	// describes: open it with those and without sniffing.
-	auto &csv_data = bind_data.bind_data->Cast<ReadCSVData>();
-	auto &csv_gstate = gstate.Cast<CSVGlobalState>();
-	auto options = csv_data.options;
-	options.auto_detect = false;
-	vector<Identifier> names;
-	vector<LogicalType> types;
-	for (idx_t i = 0; i < info.names.size(); i++) {
-		if (info.GetPartitionKeyIndex(info.names[i].GetIdentifierName()) == DConstants::INVALID_INDEX) {
-			names.push_back(info.names[i]);
-			types.push_back(info.types[i]);
-		}
-	}
-	return make_shared_ptr<CSVFileScan>(context, file, std::move(options), bind_data.file_options, names, types,
-	                                    csv_data.csv_schema, csv_gstate.SingleThreadedRead(), nullptr, false);
 }
 
 //===--------------------------------------------------------------------===//
