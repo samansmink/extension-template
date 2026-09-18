@@ -340,9 +340,11 @@ TableFunction BindHiveScan(ClientContext &context, shared_ptr<HiveScanInfo> scan
 		function_name = "read_parquet";
 		break;
 	case HiveFileFormat::CSV:
-		// Hive CSV files carry no schema: the columns are given, by position
+		// Hive CSV files carry no schema: the columns are given, by position, and the dialect is the one the table
+		// describes - there is nothing left for the sniffer to find, so every file is opened without sniffing
 		function_name = "read_csv";
 		param_map["columns"] = Value::STRUCT(data_columns);
+		param_map["auto_detect"] = Value::BOOLEAN(false);
 		param_map["header"] = Value::BOOLEAN(scan_info->header);
 		param_map["delim"] = Value(scan_info->delimiter);
 		param_map["quote"] = Value(scan_info->quote);
