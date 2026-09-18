@@ -6,7 +6,7 @@ registers (Iceberg, Delta, ...) are listed, with the columns Glue reports, but c
 
 ```sql
 CREATE SECRET (TYPE S3, PROVIDER credential_chain, REGION 'eu-central-1');
-ATTACH '984506134640' AS my_datalake (TYPE GLUE);
+ATTACH '<account_id>' AS my_datalake (TYPE GLUE);
 SHOW ALL TABLES;
 SELECT * FROM my_datalake.default.some_table;
 ```
