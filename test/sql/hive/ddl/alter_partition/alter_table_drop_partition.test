@@ -1,0 +1,131 @@
+# name: test/sql/hive/ddl/alter_partition/alter_table_drop_partition.test
+# description: ALTER TABLE DROP [IF EXISTS] PARTITION (...) for Hive tables in Glue: dropping one or
+# group: [alter_partition]
+
+#              several partitions, with and without IF EXISTS. DuckDB has no DROP PARTITION syntax, the statement is
+#              glue_drop_partition(table, partition_spec, if_exists := ...)
+
+require httpfs
+
+require glue
+
+require-env GLUE_CATALOG_ID
+
+statement ok
+attach '{GLUE_CATALOG_ID}' as my_datalake (
+    TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
+    DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
+);
+
+statement ok
+DROP TABLE IF EXISTS my_datalake.default.orders_drop;
+
+statement ok
+CREATE TABLE my_datalake.default.orders_drop (id INTEGER, amount DOUBLE, dt VARCHAR, country VARCHAR) PARTITIONED BY (dt, country);
+
+# INSERT registers the partitions it writes
+statement ok
+INSERT INTO my_datalake.default.orders_drop VALUES
+    (1, 10.0, '2014-05-14', 'IN'),
+    (2, 20.0, '2014-05-15', 'IN'),
+    (3, 30.0, '2014-05-16', 'IN'),
+    (4, 40.0, '2014-05-16', 'US');
+
+query II
+SELECT dt, country FROM glue_partitions('my_datalake.default.orders_drop') ORDER BY dt, country;
+----
+2014-05-14	IN
+2014-05-15	IN
+2014-05-16	IN
+2014-05-16	US
+
+#---------------------------------------------------------------------------
+# ALTER TABLE orders DROP PARTITION (dt = '2014-05-14', country = 'IN');
+#---------------------------------------------------------------------------
+statement ok
+CALL glue_drop_partition('my_datalake.default.orders_drop', {dt: '2014-05-14', country: 'IN'});
+
+query II
+SELECT dt, country FROM glue_partitions('my_datalake.default.orders_drop') ORDER BY dt, country;
+----
+2014-05-15	IN
+2014-05-16	IN
+2014-05-16	US
+
+# the data of a dropped partition is no longer read ...
+query I
+SELECT id FROM my_datalake.default.orders_drop ORDER BY id;
+----
+2
+3
+4
+
+# ... but its files stay in S3 (dropping a partition only removes metadata)
+query I
+SELECT count(*) FROM read_parquet('{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/orders_drop/dt=2014-05-14/country=IN/*.parquet');
+----
+1
+
+#---------------------------------------------------------------------------
+# ALTER TABLE orders DROP PARTITION (dt = '2014-05-15', country = 'IN'), PARTITION (dt = '2014-05-16', country = 'IN');
+# (one call per partition)
+#---------------------------------------------------------------------------
+statement ok
+CALL glue_drop_partition('my_datalake.default.orders_drop', {dt: '2014-05-15', country: 'IN'});
+
+statement ok
+CALL glue_drop_partition('my_datalake.default.orders_drop', {dt: '2014-05-16', country: 'IN'});
+
+query II
+SELECT dt, country FROM glue_partitions('my_datalake.default.orders_drop') ORDER BY dt, country;
+----
+2014-05-16	US
+
+query I
+SELECT id FROM my_datalake.default.orders_drop;
+----
+4
+
+#---------------------------------------------------------------------------
+# ALTER TABLE orders DROP IF EXISTS PARTITION (...)
+#---------------------------------------------------------------------------
+statement error
+CALL glue_drop_partition('my_datalake.default.orders_drop', {dt: '2014-05-14', country: 'IN'});
+----
+does not exist
+
+statement ok
+CALL glue_drop_partition('my_datalake.default.orders_drop', {dt: '2014-05-14', country: 'IN'}, if_exists := true);
+
+# the partition spec must name every partition key (there is no syntax for dropping a range of partitions)
+statement error
+CALL glue_drop_partition('my_datalake.default.orders_drop', {dt: '2014-05-16'});
+----
+
+# a dropped partition can be added again, its files are then read again
+statement ok
+CALL glue_add_partition('my_datalake.default.orders_drop', {dt: '2014-05-14', country: 'IN'});
+
+query I
+SELECT id FROM my_datalake.default.orders_drop ORDER BY id;
+----
+1
+4
+
+# the second attach sees the partitions registered in Glue
+statement ok
+attach '{GLUE_CATALOG_ID}' as verify_datalake (
+    TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
+    DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
+);
+
+query II
+SELECT dt, country FROM glue_partitions('verify_datalake.default.orders_drop') ORDER BY dt, country;
+----
+2014-05-14	IN
+2014-05-16	US
+
+statement ok
+DROP TABLE my_datalake.default.orders_drop;

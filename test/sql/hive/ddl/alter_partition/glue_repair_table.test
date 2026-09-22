@@ -1,0 +1,141 @@
+# name: test/sql/hive/ddl/alter_partition/glue_repair_table.test
+# description: glue_repair_table for Hive tables in Glue: registering partitions found in S3.
+# group: [alter_partition]
+
+require httpfs
+
+require glue
+
+require-env GLUE_CATALOG_ID
+
+statement ok
+attach '{GLUE_CATALOG_ID}' as my_datalake (
+    TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
+    DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
+);
+
+statement ok
+DROP TABLE IF EXISTS my_datalake.default.orders_repair;
+
+statement ok
+CREATE TABLE my_datalake.default.orders_repair (id INTEGER, amount DOUBLE, dt VARCHAR, country VARCHAR) PARTITIONED BY (dt, country);
+
+# Hive compatible partitions added to S3 after the table was created
+statement ok
+COPY (SELECT 1 AS id, 10.0 AS amount) TO '{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/orders_repair/dt=2016-05-14/country=IN/data.parquet';
+
+statement ok
+COPY (SELECT 2 AS id, 20.0 AS amount) TO '{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/orders_repair/dt=2016-05-15/country=IN/data.parquet';
+
+statement ok
+COPY (SELECT 3 AS id, 30.0 AS amount) TO '{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/orders_repair/dt=2016-05-15/country=US/data.parquet';
+
+# a directory that does not follow the <key>=<value> scheme is not a partition
+statement ok
+COPY (SELECT 9 AS id, 90.0 AS amount) TO '{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/orders_repair/misc/data.parquet';
+
+query I
+SELECT count(*) FROM glue_partitions('my_datalake.default.orders_repair');
+----
+0
+
+#---------------------------------------------------------------------------
+# test glue repair table;
+#---------------------------------------------------------------------------
+query II
+SELECT dt, country FROM glue_repair_table('my_datalake.default.orders_repair') ORDER BY dt, country;
+----
+2016-05-14	IN
+2016-05-15	IN
+2016-05-15	US
+
+query III
+SELECT dt, country, location FROM glue_partitions('my_datalake.default.orders_repair') ORDER BY dt, country;
+----
+2016-05-14	IN	{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/orders_repair/dt=2016-05-14/country=IN
+2016-05-15	IN	{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/orders_repair/dt=2016-05-15/country=IN
+2016-05-15	US	{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/orders_repair/dt=2016-05-15/country=US
+
+query I
+SELECT id FROM my_datalake.default.orders_repair ORDER BY id;
+----
+1
+2
+3
+
+# running it again adds nothing
+query I
+SELECT count(*) FROM glue_repair_table('my_datalake.default.orders_repair');
+----
+0
+
+# new Hive compatible partitions are picked up by the next repair
+statement ok
+COPY (SELECT 4 AS id, 40.0 AS amount) TO '{DEFAULT_S3_LOCATION}/{TEST_DIR}/default/orders_repair/dt=2016-05-16/country=IN/data.parquet';
+
+query II
+SELECT dt, country FROM glue_repair_table('my_datalake.default.orders_repair');
+----
+2016-05-16	IN
+
+query I
+SELECT id FROM my_datalake.default.orders_repair WHERE dt = '2016-05-16';
+----
+4
+
+#---------------------------------------------------------------------------
+# glue_repair_table only adds partitions, it never removes them
+#---------------------------------------------------------------------------
+# a registered partition without any files in S3
+statement ok
+CALL glue_add_partition('my_datalake.default.orders_repair', {dt: '2016-07-01', country: 'IN'});
+
+query I
+SELECT count(*) FROM glue_repair_table('my_datalake.default.orders_repair');
+----
+0
+
+query I
+SELECT count(*) FROM glue_partitions('my_datalake.default.orders_repair');
+----
+5
+
+# a dropped partition (files still in S3) is added back by a repair
+statement ok
+CALL glue_drop_partition('my_datalake.default.orders_repair', {dt: '2016-05-14', country: 'IN'});
+
+query I
+SELECT count(*) FROM my_datalake.default.orders_repair;
+----
+3
+
+query II
+SELECT dt, country FROM glue_repair_table('my_datalake.default.orders_repair');
+----
+2016-05-14	IN
+
+query I
+SELECT count(*) FROM my_datalake.default.orders_repair;
+----
+4
+
+#---------------------------------------------------------------------------
+# an unpartitioned table has nothing to repair
+#---------------------------------------------------------------------------
+statement ok
+DROP TABLE IF EXISTS my_datalake.default.orders_repair_plain;
+
+statement ok
+CREATE TABLE my_datalake.default.orders_repair_plain (id INTEGER, amount DOUBLE);
+
+statement error
+SELECT * FROM glue_repair_table('my_datalake.default.orders_repair_plain');
+----
+not partitioned
+
+statement ok
+DROP TABLE my_datalake.default.orders_repair_plain;
+
+statement ok
+DROP TABLE my_datalake.default.orders_repair;

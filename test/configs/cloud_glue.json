@@ -1,0 +1,40 @@
+{
+	"description": "A live AWS Glue Data Catalog; credentials from the AWS credential chain (AWS_PROFILE, environment, ...)",
+	"on_init": "CREATE SECRET (TYPE S3, PROVIDER credential_chain, REGION 'eu-central-1');",
+	"statically_loaded_extensions": [
+		"core_functions",
+		"parquet",
+		"json",
+		"avro",
+		"httpfs",
+		"aws",
+		"glue"
+	],
+	"test_env": [
+		{
+			"env_name": "GLUE_TEST_CONFIG",
+			"env_value": "cloud"
+		},
+		{
+			"env_name": "GLUE_CATALOG_ID",
+			"env_value": "984506134640"
+		},
+		{
+			"env_name": "GLUE_ENDPOINT",
+			"env_value": ""
+		},
+		{
+			"env_name": "DEFAULT_S3_LOCATION",
+			"env_value": "s3://simple-s3-glue-database/glue-database-root"
+		}
+	],
+	"skip_tests": [
+		{
+			"reason": "glue_repair_table (MSCK REPAIR TABLE) is not implemented yet",
+			"paths": [
+				"test/sql/hive/ddl/alter_partition/msck_repair_table.test",
+				"test/sql/hive/ddl/alter_partition/show_partitions.test"
+			]
+		}
+	]
+}

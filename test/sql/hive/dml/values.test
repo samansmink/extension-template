@@ -1,0 +1,92 @@
+# name: test/sql/hive/dml/values.test
+# description: VALUES as an inline table: on its own, as the source of a Hive table in Glue, and as an INSERT source
+# group: [dml]
+
+require httpfs
+
+require glue
+
+require-env GLUE_CATALOG_ID
+
+statement ok
+attach '{GLUE_CATALOG_ID}' as my_datalake (
+    TYPE glue,
+    ENDPOINT '{GLUE_ENDPOINT}',
+    DEFAULT_LOCATION '{DEFAULT_S3_LOCATION}/{TEST_DIR}'
+);
+
+statement ok
+DROP TABLE IF EXISTS my_datalake.default.dml_customers;
+
+# a table with one column and three rows
+query I
+VALUES (1), (2), (3);
+----
+1
+2
+3
+
+# rows without parentheses are not accepted
+statement error
+VALUES 1, 2, 3;
+----
+
+# a table with two columns and three rows
+query II
+VALUES
+    (1, 'a'),
+    (2, 'b'),
+    (3, 'c');
+----
+1	a
+2	b
+3	c
+
+# a table with the columns id and name
+query II
+SELECT * FROM (
+    VALUES
+        (1, 'a'),
+        (2, 'b'),
+        (3, 'c')
+) AS t (id, name);
+----
+1	a
+2	b
+3	c
+
+# create a Hive table in Glue from the inline table
+statement ok
+CREATE TABLE my_datalake.default.dml_customers AS
+SELECT * FROM (
+    VALUES
+        (1, 'a'),
+        (2, 'b'),
+        (3, 'c')
+) AS t (id, name);
+
+query II
+SELECT column_name, data_type FROM duckdb_columns() WHERE database_name = 'my_datalake' AND table_name = 'dml_customers' ORDER BY column_index;
+----
+id	INTEGER
+name	VARCHAR
+
+query II
+SELECT * FROM my_datalake.default.dml_customers ORDER BY id;
+----
+1	a
+2	b
+3	c
+
+# the inline table as the source of an INSERT
+statement ok
+INSERT INTO my_datalake.default.dml_customers
+SELECT * FROM (VALUES (4, 'd'), (5, 'e')) AS t (id, name);
+
+query II
+SELECT count(*), max(name) FROM my_datalake.default.dml_customers;
+----
+5	e
+
+statement ok
+DROP TABLE my_datalake.default.dml_customers;
